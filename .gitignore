@@ -22,3 +22,13 @@ compile_commands.json
 
 # Markdown 文件
 *.md
+
+# 敏感配置文件（含密码/密钥）
+config/config.json
+
+# IDE/工具文件
+.clangd
+
+# 依赖锁文件
+package-lock.json
+bun.lock
