@@ -28,12 +28,10 @@ void MysqlPool::init(const std::string& host, int port,
 }
 
 std::shared_ptr<mysqlx::Session> MysqlPool::create_session() {
-    mysqlx::SessionSettings settings;
-    settings.setHost(host_);
-    settings.setPort(port_);
-    settings.setUser(user_);
-    settings.setPassword(password_);
-    settings.setSchema(database_);
+    mysqlx::SessionSettings settings(
+        host_, static_cast<unsigned>(port_),
+        user_, password_, database_
+    );
     auto sess = std::make_shared<mysqlx::Session>(settings);
     return sess;
 }

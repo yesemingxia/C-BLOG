@@ -61,12 +61,12 @@ json::array list_posts(int page, int page_size, const std::string& status, int& 
         json::array arr;
         for (auto row : result) {
             Post p;
-            p.id = row[0].get_sint();
+            p.id = static_cast<int64_t>(row[0]);
             p.title = mysqlx_helper::to_string(row[1]);
             p.summary = mysqlx_helper::is_null(row, 2) ? "" : mysqlx_helper::to_string(row[2]);
-            p.user_id = row[3].get_sint();
+            p.user_id = static_cast<int64_t>(row[3]);
             p.status = mysqlx_helper::to_string(row[4]);
-            p.view_count = static_cast<int>(row[5].get_uint());
+            p.view_count = static_cast<int>(static_cast<uint64_t>(row[5]));
             p.created_at = mysqlx_helper::to_string(row[6]);
             p.updated_at = mysqlx_helper::to_string(row[7]);
             arr.push_back(post_to_json(p));
@@ -98,16 +98,16 @@ Post get_post(int64_t id) {
             return p;
         }
 
-        p.id = row[0];
-        p.title = std::string(row[1]);
-        p.content_md = std::string(row[2]);
-        p.content_html = std::string(row[3]);
-        p.summary = row.isNull(4) ? "" : std::string(row[4]);
-        p.user_id = row[5];
-        p.status = std::string(row[6]);
-        p.view_count = static_cast<int>(row[7]);
-        p.created_at = std::string(row[8]);
-        p.updated_at = std::string(row[9]);
+        p.id = static_cast<int64_t>(row[0]);
+        p.title = static_cast<std::string>(row[1]);
+        p.content_md = static_cast<std::string>(row[2]);
+        p.content_html = static_cast<std::string>(row[3]);
+        p.summary = row[4].isNull() ? "" : static_cast<std::string>(row[4]);
+        p.user_id = static_cast<int64_t>(row[5]);
+        p.status = static_cast<std::string>(row[6]);
+        p.view_count = static_cast<int>(static_cast<uint64_t>(row[7]));
+        p.created_at = static_cast<std::string>(row[8]);
+        p.updated_at = static_cast<std::string>(row[9]);
 
         sess->sql("UPDATE posts SET view_count = view_count + 1 WHERE id = :id")
             .bind("id", id).execute();
@@ -145,7 +145,7 @@ int64_t create_post(const Post& post) {
             .execute();
 
         auto result = sess->sql("SELECT LAST_INSERT_ID()").execute();
-        int64_t id = result.fetchOne()[0];
+        int64_t id = static_cast<int64_t>(result.fetchOne()[0]);
 
         MysqlPool::instance().release(sess);
         return id;

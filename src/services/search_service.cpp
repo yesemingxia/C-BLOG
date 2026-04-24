@@ -2,6 +2,7 @@
 #include "db/mysql_pool.h"
 #include "db/redis_pool.h"
 #include "utils/logger.h"
+#include "utils/mysqlx_helper.h"
 
 namespace search_service {
 
@@ -38,12 +39,12 @@ json::array search(const std::string& keyword) {
         json::array arr;
         for (auto row : result) {
             json::object obj;
-            obj["id"] = row[0];
-            obj["title"] = std::string(row[1]);
-            obj["summary"] = row.isNull(2) ? "" : std::string(row[2]);
-            obj["status"] = std::string(row[3]);
-            obj["view_count"] = row[4];
-            obj["created_at"] = std::string(row[5]);
+            obj["id"] = mysqlx_helper::to_json(row[0]);
+            obj["title"] = mysqlx_helper::to_string(row[1]);
+            obj["summary"] = row[2].isNull() ? "" : mysqlx_helper::to_string(row[2]);
+            obj["status"] = mysqlx_helper::to_string(row[3]);
+            obj["view_count"] = mysqlx_helper::to_json(row[4]);
+            obj["created_at"] = mysqlx_helper::to_string(row[5]);
             arr.push_back(obj);
         }
 

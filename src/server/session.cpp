@@ -26,7 +26,7 @@ void Session::handle_request() {
     res_.version(req_.version());
     res_.set(http::field::server, "cpp-blog/0.1.0");
 
-    cors_handle_request(req_, res_);
+    cors_middleware::cors_handle_request(req_, res_);
 
     router_.route_request(req_, res_);
 

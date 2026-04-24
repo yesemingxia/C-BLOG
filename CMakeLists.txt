@@ -1,4 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
+
+set(CMAKE_POLICY_DEFAULT_CMP0144 NEW)
+set(CMAKE_POLICY_DEFAULT_CMP0167 NEW)
+
 project(cpp-blog LANGUAGES CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -17,7 +21,8 @@ if(NOT CMAKE_TOOLCHAIN_FILE)
     endif()
 endif()
 
-# 消除 Boost 1.88 的 FindBoost policy 警告
+# 消除 Boost 1.88 的 FindBoost 策略警告
+cmake_policy(SET CMP0144 NEW)
 cmake_policy(SET CMP0167 NEW)
 set(Boost_NO_WARN_NEW_VERSION ON)
 

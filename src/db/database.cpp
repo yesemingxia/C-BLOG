@@ -10,8 +10,7 @@ void Database::init_tables() {
     }
 
     try {
-        auto db = sess->getSchema("");
-        auto sess_direct = sess->sql(
+        sess->sql(
             "CREATE TABLE IF NOT EXISTS users ("
             "  id BIGINT PRIMARY KEY AUTO_INCREMENT,"
             "  username VARCHAR(50) UNIQUE NOT NULL,"
@@ -21,8 +20,7 @@ void Database::init_tables() {
             "  role ENUM('admin','user') DEFAULT 'user',"
             "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
             ")"
-        );
-        sess_direct.execute();
+        ).execute();
 
         sess->sql(
             "CREATE TABLE IF NOT EXISTS posts ("
@@ -69,10 +67,6 @@ void Database::init_tables() {
             "  FOREIGN KEY (post_id) REFERENCES posts(id),"
             "  FOREIGN KEY (parent_id) REFERENCES comments(id)"
             ")"
-        ).execute();
-
-        sess->sql(
-            "ALTER TABLE posts ADD FULLTEXT INDEX IF NOT EXISTS ft_posts_search(title, content_md)"
         ).execute();
 
         spdlog::info("Database tables initialized");

@@ -9,34 +9,34 @@ namespace json = boost::json;
 namespace mysqlx_helper {
 
 inline json::value to_json(const mysqlx::Value& v) {
-    if (v.is_null()) return json::value{};
-    switch (v.get_type()) {
+    if (v.isNull()) return json::value{};
+    switch (v.getType()) {
     case mysqlx::Value::VNULL:
         return json::value{};
     case mysqlx::Value::INT64:
-        return json::value(v.get_sint());
+        return json::value(static_cast<int64_t>(v));
     case mysqlx::Value::UINT64:
-        return json::value(static_cast<int64_t>(v.get_uint()));
+        return json::value(static_cast<int64_t>(static_cast<uint64_t>(v)));
     case mysqlx::Value::FLOAT:
-        return json::value(static_cast<double>(v.get_float()));
+        return json::value(static_cast<double>(static_cast<float>(v)));
     case mysqlx::Value::DOUBLE:
-        return json::value(v.get_double());
+        return json::value(static_cast<double>(v));
     case mysqlx::Value::BOOL:
-        return json::value(v.get_bool());
+        return json::value(static_cast<bool>(v));
     case mysqlx::Value::STRING:
-        return json::value(v.get_string());
+        return json::value(static_cast<std::string>(v));
     default:
-        return json::value(std::string(v.get_string()));
+        return json::value(static_cast<std::string>(v));
     }
 }
 
 inline std::string to_string(const mysqlx::Value& v) {
-    if (v.is_null()) return "";
-    return v.get_string();
+    if (v.isNull()) return "";
+    return static_cast<std::string>(v);
 }
 
 inline bool is_null(const mysqlx::Row& row, mysqlx::col_count_t col) {
-    return row[col].is_null();
+    return row[col].isNull();
 }
 
 }

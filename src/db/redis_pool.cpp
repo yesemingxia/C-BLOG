@@ -1,6 +1,10 @@
 #include "db/redis_pool.h"
 #include "utils/logger.h"
 
+#ifdef _WIN32
+#include <winsock2.h>
+#endif
+
 RedisPool& RedisPool::instance() {
     static RedisPool pool;
     return pool;

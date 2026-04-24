@@ -101,10 +101,10 @@ static http::response<http::string_body> handle_login(
             return res;
         }
 
-        int64_t user_id = row[0];
-        std::string hash_b64 = std::string(row[1]);
-        std::string salt_b64 = std::string(row[2]);
-        std::string role = std::string(row[3]);
+        int64_t user_id = static_cast<int64_t>(row[0]);
+        std::string hash_b64 = static_cast<std::string>(row[1]);
+        std::string salt_b64 = static_cast<std::string>(row[2]);
+        std::string role = static_cast<std::string>(row[3]);
 
         MysqlPool::instance().release(sess);
 

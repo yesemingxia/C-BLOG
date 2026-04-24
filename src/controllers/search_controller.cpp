@@ -3,7 +3,6 @@
 #include "utils/response.h"
 
 #include <boost/json.hpp>
-#include <boost/url.hpp>
 
 namespace json = boost::json;
 namespace http = boost::beast::http;
