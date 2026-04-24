@@ -203,7 +203,3 @@ npm run dev
 | POST | `/api/posts/:id/comments` | 发表评论 | - |
 | GET | `/api/tags` | 获取标签列表 | - |
 | GET | `/api/search?q=keyword` | 全文搜索 | - |
-
-## License
-
-MIT
