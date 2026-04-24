@@ -62,7 +62,7 @@ static http::response<http::string_body> handle_register(
         MysqlPool::instance().release(sess);
 
         http::response<http::string_body> res{http::status::ok, req.version()};
-        res.body() = response::success("Registration successful");
+        res.body() = response::success(std::string("Registration successful"));
         res.prepare_payload();
         return res;
     } catch (const std::exception& e) {
@@ -92,8 +92,8 @@ static http::response<http::string_body> handle_login(
         auto result = sess->sql("SELECT id, password_hash, salt, role FROM users WHERE username = :user")
             .bind("user", username).execute();
 
-        auto rows = result.fetchAll();
-        if (rows.empty()) {
+        auto row = result.fetchOne();
+        if (row.isNull()) {
             MysqlPool::instance().release(sess);
             http::response<http::string_body> res{http::status::unauthorized, req.version()};
             res.body() = response::error(401, "Invalid username or password");
@@ -101,7 +101,6 @@ static http::response<http::string_body> handle_login(
             return res;
         }
 
-        auto row = rows[0];
         int64_t user_id = row[0];
         std::string hash_b64 = std::string(row[1]);
         std::string salt_b64 = std::string(row[2]);
@@ -157,7 +156,7 @@ static http::response<http::string_body> handle_logout(
     auth_service::blacklist_token(token, Config::instance().jwt_expire_seconds());
 
     http::response<http::string_body> res{http::status::ok, req.version()};
-    res.body() = response::success("Logout successful");
+    res.body() = response::success(std::string("Logout successful"));
     res.prepare_payload();
     return res;
 }

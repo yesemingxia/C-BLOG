@@ -2,6 +2,7 @@
 
 #include "db/mysql_pool.h"
 #include "utils/logger.h"
+#include "utils/mysqlx_helper.h"
 #include "utils/response.h"
 
 #include <boost/json.hpp>
@@ -37,13 +38,13 @@ static http::response<http::string_body> handle_list_comments(
         json::array arr;
         for (auto row : result) {
             json::object obj;
-            obj["id"] = row[0];
-            obj["post_id"] = row[1];
-            obj["author_name"] = std::string(row[2]);
-            obj["author_email"] = row.isNull(3) ? "" : std::string(row[3]);
-            obj["content"] = std::string(row[4]);
-            obj["parent_id"] = row.isNull(5) ? json::value{} : json::value(row[5]);
-            obj["created_at"] = std::string(row[6]);
+            obj["id"] = mysqlx_helper::to_json(row[0]);
+            obj["post_id"] = mysqlx_helper::to_json(row[1]);
+            obj["author_name"] = mysqlx_helper::to_string(row[2]);
+            obj["author_email"] = mysqlx_helper::is_null(row, 3) ? "" : mysqlx_helper::to_string(row[3]);
+            obj["content"] = mysqlx_helper::to_string(row[4]);
+            obj["parent_id"] = mysqlx_helper::is_null(row, 5) ? json::value{} : mysqlx_helper::to_json(row[5]);
+            obj["created_at"] = mysqlx_helper::to_string(row[6]);
             arr.push_back(obj);
         }
 
@@ -116,7 +117,7 @@ static http::response<http::string_body> handle_create_comment(
         MysqlPool::instance().release(sess);
 
         http::response<http::string_body> res{http::status::created, req.version()};
-        res.body() = response::success("Comment created");
+        res.body() = response::success(std::string("Comment created"));
         res.prepare_payload();
         return res;
     } catch (const std::exception& e) {

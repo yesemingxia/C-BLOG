@@ -2,6 +2,7 @@
 
 #include "db/mysql_pool.h"
 #include "utils/logger.h"
+#include "utils/mysqlx_helper.h"
 #include "utils/response.h"
 
 #include <boost/json.hpp>
@@ -29,9 +30,9 @@ static http::response<http::string_body> handle_list_tags(
         json::array arr;
         for (auto row : result) {
             json::object obj;
-            obj["id"] = row[0];
-            obj["name"] = std::string(row[1]);
-            obj["post_count"] = row[2];
+            obj["id"] = mysqlx_helper::to_json(row[0]);
+            obj["name"] = mysqlx_helper::to_string(row[1]);
+            obj["post_count"] = mysqlx_helper::to_json(row[2]);
             arr.push_back(obj);
         }
 
@@ -80,12 +81,12 @@ static http::response<http::string_body> handle_tag_posts(
         json::array arr;
         for (auto row : result) {
             json::object obj;
-            obj["id"] = row[0];
-            obj["title"] = std::string(row[1]);
-            obj["summary"] = row.isNull(2) ? "" : std::string(row[2]);
-            obj["status"] = std::string(row[3]);
-            obj["view_count"] = row[4];
-            obj["created_at"] = std::string(row[5]);
+            obj["id"] = mysqlx_helper::to_json(row[0]);
+            obj["title"] = mysqlx_helper::to_string(row[1]);
+            obj["summary"] = mysqlx_helper::is_null(row, 2) ? "" : mysqlx_helper::to_string(row[2]);
+            obj["status"] = mysqlx_helper::to_string(row[3]);
+            obj["view_count"] = mysqlx_helper::to_json(row[4]);
+            obj["created_at"] = mysqlx_helper::to_string(row[5]);
             arr.push_back(obj);
         }
 

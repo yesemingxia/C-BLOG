@@ -3,6 +3,7 @@
 #include "db/mysql_pool.h"
 #include "db/redis_pool.h"
 #include "utils/logger.h"
+#include "utils/mysqlx_helper.h"
 
 #include <sstream>
 
@@ -60,14 +61,14 @@ json::array list_posts(int page, int page_size, const std::string& status, int& 
         json::array arr;
         for (auto row : result) {
             Post p;
-            p.id = row[0];
-            p.title = std::string(row[1]);
-            p.summary = row.isNull(2) ? "" : std::string(row[2]);
-            p.user_id = row[3];
-            p.status = std::string(row[4]);
-            p.view_count = static_cast<int>(row[5]);
-            p.created_at = std::string(row[6]);
-            p.updated_at = std::string(row[7]);
+            p.id = row[0].get_sint();
+            p.title = mysqlx_helper::to_string(row[1]);
+            p.summary = mysqlx_helper::is_null(row, 2) ? "" : mysqlx_helper::to_string(row[2]);
+            p.user_id = row[3].get_sint();
+            p.status = mysqlx_helper::to_string(row[4]);
+            p.view_count = static_cast<int>(row[5].get_uint());
+            p.created_at = mysqlx_helper::to_string(row[6]);
+            p.updated_at = mysqlx_helper::to_string(row[7]);
             arr.push_back(post_to_json(p));
         }
 
@@ -91,13 +92,12 @@ Post get_post(int64_t id) {
             "FROM posts WHERE id = :id")
             .bind("id", id).execute();
 
-        auto rows = result.fetchAll();
-        if (rows.empty()) {
+        auto row = result.fetchOne();
+        if (row.isNull()) {
             MysqlPool::instance().release(sess);
             return p;
         }
 
-        auto row = rows[0];
         p.id = row[0];
         p.title = std::string(row[1]);
         p.content_md = std::string(row[2]);

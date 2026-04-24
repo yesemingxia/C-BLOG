@@ -139,7 +139,7 @@ static http::response<http::string_body> handle_update_post(
         }
 
         http::response<http::string_body> res{http::status::ok, req.version()};
-        res.body() = response::success("Post updated");
+        res.body() = response::success(std::string("Post updated"));
         res.prepare_payload();
         return res;
     } catch (const std::exception& e) {
@@ -179,7 +179,7 @@ static http::response<http::string_body> handle_delete_post(
     }
 
     http::response<http::string_body> res{http::status::ok, req.version()};
-    res.body() = response::success("Post deleted");
+    res.body() = response::success(std::string("Post deleted"));
     res.prepare_payload();
     return res;
 }
