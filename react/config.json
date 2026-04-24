@@ -1,0 +1,61 @@
+{
+  "routes": [
+    {
+      "path": "/",
+      "src": "src/pages/Index.tsx"
+    },
+    {
+      "path": "/home",
+      "src": "src/pages/Home.tsx"
+    },
+    {
+      "path": "/login",
+      "src": "src/pages/Login.tsx"
+    },
+    {
+      "path": "/explore",
+      "src": "src/pages/Explore.tsx"
+    },
+    {
+      "path": "/post",
+      "src": "src/pages/Post.tsx"
+    },
+    {
+      "path": "/write",
+      "src": "src/pages/Write.tsx"
+    },
+    {
+      "path": "/profile",
+      "src": "src/pages/Profile.tsx"
+    },
+    {
+      "path": "/search",
+      "src": "src/pages/SearchPage.tsx"
+    },
+    {
+      "path": "/notifications",
+      "src": "src/pages/Notifications.tsx"
+    },
+    {
+      "path": "/settings",
+      "src": "src/pages/Settings.tsx"
+    }
+  ],
+  "components": [
+    {
+      "name": "BlogCard",
+      "src": "src/components/BlogCard.tsx",
+      "route": "/preview/blog-card"
+    },
+    {
+      "name": "GlassBackground",
+      "src": "src/components/GlassBackground.tsx",
+      "route": "/preview/glass-background"
+    },
+    {
+      "name": "Navbar",
+      "src": "src/components/Navbar.tsx",
+      "route": "/preview/navbar"
+    }
+  ]
+}

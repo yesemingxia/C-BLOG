@@ -1,0 +1,24 @@
+# 编译产生的文件
+build/
+build-clangd/
+*.exe
+*.obj
+*.lib
+*.dll
+*.pdb
+*.ilk
+*.pdb
+*.exp
+*.log
+*.tlog
+*.lastbuildstate
+*.vcxproj
+*.vcxproj.filters
+*.sln
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# Markdown 文件
+*.md

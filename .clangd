@@ -1,0 +1,11 @@
+CompileFlags:
+  Add:
+    - -std=c++17
+    - -I"D:\boost_1_88_0"
+    - -I"D:\vcpkg-master\installed\x64-windows\include"
+  Remove:
+    - -fno-exceptions
+    - -fno-rtti
+
+Diagnostics:
+  UnusedIncludes: Strict
