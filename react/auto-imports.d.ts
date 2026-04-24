@@ -22,6 +22,7 @@ declare global {
   const CheckIcon: typeof import('lucide-react').CheckIcon
   const ChevronDown: typeof import('lucide-react').ChevronDown
   const ChevronDownIcon: typeof import('lucide-react').ChevronDownIcon
+  const ChevronLeft: typeof import('lucide-react').ChevronLeft
   const ChevronLeftIcon: typeof import('lucide-react').ChevronLeftIcon
   const ChevronRight: typeof import('lucide-react').ChevronRight
   const ChevronRightIcon: typeof import('lucide-react').ChevronRightIcon
@@ -105,6 +106,7 @@ declare global {
   const View: typeof import('lucide-react').View
   const X: typeof import('lucide-react').X
   const XIcon: typeof import('lucide-react').XIcon
+  const Zap: typeof import('lucide-react').Zap
   const cache: typeof import('react').cache
   const cacheSignal: typeof import('react').cacheSignal
   const createContext: typeof import('react').createContext

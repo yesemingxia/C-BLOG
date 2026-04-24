@@ -2,18 +2,17 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   TrendingUp, Flame, Star, ChevronRight,
-  ArrowRight, Rss, Hash
+  ArrowRight, Rss, Hash, Sparkles, Zap
 } from "lucide-react";
 import BlogCard, { BlogPost } from "../components/BlogCard";
-import GlassBackground from "../components/GlassBackground";
-import Navbar from "../components/Navbar";
+import MainLayout from "../components/MainLayout";
 
 const posts: BlogPost[] = [
   {
     id: 1,
     title: `探索现代前端架构的无限可能`,
     excerpt: `深入了解 React 19 的新特性，探讨如何在大型项目中构建高性能、可维护的前端架构体系。`,
-    cover: `https://picsum.photos/seed/blog1/600/400`,
+    cover: `https://images.unsplash.com/photo-1633356122544-f134324a6cee?auto=format&fit=crop&q=80&w=800`,
     author: `Nova Chen`,
     authorAvatar: `NC`,
     date: `2025-06-15`,
@@ -27,8 +26,8 @@ const posts: BlogPost[] = [
   {
     id: 2,
     title: `CSS 液态玻璃效果完全指南`,
-    excerpt: `从原理到实践，全面掌握 Glassmorphism 设计语言，打造令人惊艳的 UI 界面效果。`,
-    cover: `https://picsum.photos/seed/blog2/600/400`,
+    excerpt: `从原理到实践，全面掌握 Glassmorphism 设计语言，打造令人惊惊艳的 UI 界面效果。`,
+    cover: `https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&q=80&w=800`,
     author: `Luna Park`,
     authorAvatar: `LP`,
     date: `2025-06-12`,
@@ -42,7 +41,7 @@ const posts: BlogPost[] = [
     id: 3,
     title: `TypeScript 5.0 类型体操深度解析`,
     excerpt: `条件类型、映射类型、模板字面量类型，掌握这些高级特性让你的代码更加优雅健壮。`,
-    cover: `https://picsum.photos/seed/blog3/600/400`,
+    cover: `https://images.unsplash.com/photo-1516116216624-53e697fedbea?auto=format&fit=crop&q=80&w=800`,
     author: `Kai Zhao`,
     authorAvatar: `KZ`,
     date: `2025-06-10`,
@@ -56,7 +55,7 @@ const posts: BlogPost[] = [
     id: 4,
     title: `AI 辅助编程的未来展望`,
     excerpt: `GPT-4o、Claude 3.5 Sonnet 等大模型如何改变软件开发模式，以及开发者的应对策略。`,
-    cover: `https://picsum.photos/seed/blog4/600/400`,
+    cover: `https://images.unsplash.com/photo-1677442136019-21780ecad995?auto=format&fit=crop&q=80&w=800`,
     author: `Mia Liu`,
     authorAvatar: `ML`,
     date: `2025-06-08`,
@@ -66,341 +65,188 @@ const posts: BlogPost[] = [
     views: 12500,
     tags: [`AI`, `未来`, `开发`],
   },
-  {
-    id: 5,
-    title: `Rust 语言在 Web 开发中的崛起`,
-    excerpt: `WebAssembly、边缘计算、高性能后端，Rust 正在成为 Web 开发者的新宠儿。`,
-    cover: `https://picsum.photos/seed/blog5/600/400`,
-    author: `Alex Wu`,
-    authorAvatar: `AW`,
-    date: `2025-06-06`,
-    readTime: 11,
-    likes: 321,
-    comments: 45,
-    views: 5670,
-    tags: [`Rust`, `WebAssembly`, `后端`],
-  },
-  {
-    id: 6,
-    title: `构建全栈应用的最佳实践 2025`,
-    excerpt: `Next.js 15 + Prisma + tRPC 技术栈深度实战，从零到上线的完整流程记录。`,
-    cover: `https://picsum.photos/seed/blog6/600/400`,
-    author: `Sam Jin`,
-    authorAvatar: `SJ`,
-    date: `2025-06-04`,
-    readTime: 20,
-    likes: 445,
-    comments: 58,
-    views: 7890,
-    tags: [`Next.js`, `全栈`, `实战`],
-  },
-];
-
-const trendingTags = [
-  `React`, `TypeScript`, `AI`, `设计`, `前端`, `后端`,
-  `算法`, `架构`, `Vue`, `Node.js`, `Python`, `DevOps`,
 ];
 
 const categories = [
-  { name: `技术`, count: 128, color: `#7c6aff`, icon: `⚡` },
+  { name: `技术`, count: 128, color: `#6366f1`, icon: <Zap size={14} /> },
   { name: `设计`, count: 64, color: `#38bdf8`, icon: `🎨` },
   { name: `AI / ML`, count: 89, color: `#f472b6`, icon: `🤖` },
   { name: `生活`, count: 45, color: `#34d399`, icon: `🌿` },
-  { name: `职场`, count: 37, color: `#f59e0b`, icon: `💼` },
 ];
 
 const Home = () => {
   const navigate = useNavigate();
   const [activeCategory, setActiveCategory] = useState(`全部`);
-  const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
-
-  const filteredPosts = activeCategory === `全部`
-    ? posts
-    : posts.filter((p) => p.tags.some((t) => t === activeCategory));
-
-  const handleLogout = () => {
-    localStorage.removeItem(`blog_logged_in`);
-    navigate(`/login`);
-  };
+  const isLoggedIn = !!localStorage.getItem(`blog_logged_in`);
 
   return (
-    <div data-cmp="Home" className="min-h-screen relative">
-      <GlassBackground showParticles={false} />
-      <Navbar
-        isLoggedIn={isLoggedIn}
-        onLogout={handleLogout}
-        onLogin={() => navigate(`/login`)}
-      />
-
-      <div className="relative z-10" style={{ paddingTop: 64 }}>
-        {/* Hero section */}
-        <div
-          className="mx-auto px-6 py-20 text-center"
-          style={{ maxWidth: 1440 }}
-        >
-          <div
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full mb-6 text-sm"
-            style={{
-              background: `rgba(124,106,255,0.1)`,
-              border: `1px solid rgba(124,106,255,0.2)`,
-              color: `#a78bfa`,
-            }}
-          >
-            <Sparkles size={14} />
-            发现精彩内容，探索无限知识
+    <MainLayout>
+      <div className="mx-auto px-6 max-w-[1440px]">
+        {/* Hero Section */}
+        <div className="py-20 md:py-32 flex flex-col items-center text-center relative">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full mb-8 text-xs font-bold tracking-widest uppercase bg-[var(--primary)]/10 text-[var(--primary)] border border-[var(--primary)]/20 shadow-sm animate-in fade-in slide-in-from-bottom-4 duration-1000">
+            <Sparkles size={14} className="fill-[var(--primary)]/20" />
+            Empowering Your Ideas
           </div>
 
-          <h1
-            className="font-black mb-4 leading-none"
-            style={{ fontSize: `clamp(2.5rem, 5vw, 4rem)` }}
-          >
-            <span className="gradient-text">用文字点亮</span>
-            <br />
-            <span className="text-foreground">你的思想宇宙</span>
+          <h1 className="text-5xl md:text-7xl font-black tracking-tighter mb-8 leading-[0.9] animate-in fade-in slide-in-from-bottom-6 duration-1000 delay-100">
+            用文字点亮<br />
+            <span className="gradient-text">思想的宇宙</span>
           </h1>
 
-          <p
-            className="text-lg max-w-xl mx-auto mb-8"
-            style={{ color: `rgba(232,234,246,0.6)` }}
-          >
-            加入数万创作者的平台，分享技术见解、设计灵感和人生思考
+          <p className="max-w-2xl text-lg md:text-xl text-foreground/50 mb-12 leading-relaxed animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-200">
+            加入全球领先的创作者社区，分享您的技术见解、设计美学与人生思考。
+            在这里，每一个灵感都值得被看见。
           </p>
 
-          <div className="flex items-center justify-center gap-4 flex-wrap">
+          <div className="flex flex-col sm:flex-row items-center gap-4 animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-300">
             <button
               onClick={() => isLoggedIn ? navigate(`/write`) : navigate(`/login`)}
-              className="btn-primary-glass px-8 py-3.5 rounded-2xl text-base font-semibold flex items-center gap-2"
+              className="btn-primary-glass px-10 py-4 rounded-2xl text-base font-black text-white flex items-center gap-3 group"
             >
-              开始写作 <ArrowRight size={18} />
+              开始创作 
+              <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
             </button>
             <button
               onClick={() => navigate(`/explore`)}
-              className="btn-ghost-glass px-8 py-3.5 rounded-2xl text-base font-medium text-foreground"
+              className="btn-ghost-glass px-10 py-4 rounded-2xl text-base font-bold text-foreground/80 hover:text-foreground"
             >
-              探索文章
+              探索灵感
             </button>
           </div>
 
-          {/* Stats */}
-          <div className="flex items-center justify-center gap-8 mt-12 flex-wrap">
-            {[
-              { label: `创作者`, value: `12,400+` },
-              { label: `文章`, value: `58,000+` },
-              { label: `月阅读`, value: `2.3M+` },
-            ].map((stat) => (
-              <div key={stat.label} className="text-center">
-                <div className="text-2xl font-black gradient-text">{stat.value}</div>
-                <div className="text-sm mt-0.5" style={{ color: `rgba(232,234,246,0.45)` }}>{stat.label}</div>
-              </div>
-            ))}
+          {/* Featured Orbs */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -z-10 w-full max-w-4xl aspect-video opacity-40 blur-[120px] pointer-events-none">
+             <div className="absolute top-0 left-0 w-64 h-64 bg-indigo-500 rounded-full animate-pulse" />
+             <div className="absolute bottom-0 right-0 w-64 h-64 bg-sky-500 rounded-full animate-pulse" style={{ animationDelay: '2s' }} />
           </div>
         </div>
 
-        {/* Main content */}
-        <div className="mx-auto px-6 pb-20" style={{ maxWidth: 1440 }}>
-          <div className="flex gap-8">
-            {/* Left sidebar */}
-            <div className="hidden lg:block flex-shrink-0" style={{ width: 220 }}>
-              <div className="sticky" style={{ top: 80 }}>
-                <div className="glass-card p-5 mb-4">
-                  <div className="flex items-center gap-2 mb-4 text-sm font-semibold text-foreground">
-                    <Hash size={15} style={{ color: `#7c6aff` }} />
-                    分类
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    {[{ name: `全部`, count: posts.length, color: `#7c6aff`, icon: `✦` }, ...categories].map((cat) => (
-                      <button
-                        key={cat.name}
-                        onClick={() => setActiveCategory(cat.name)}
-                        className="flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all text-left"
-                        style={{
-                          background: activeCategory === cat.name ? `rgba(124,106,255,0.12)` : `transparent`,
-                          color: activeCategory === cat.name ? `#a78bfa` : `rgba(232,234,246,0.65)`,
-                          borderLeft: activeCategory === cat.name ? `2px solid #7c6aff` : `2px solid transparent`,
-                        }}
-                      >
-                        <span className="flex items-center gap-2">
-                          <span>{cat.icon}</span>
-                          {cat.name}
-                        </span>
-                        <span
-                          className="text-xs px-1.5 py-0.5 rounded-lg"
-                          style={{
-                            background: `rgba(124,106,255,0.1)`,
-                            color: `rgba(167,139,250,0.7)`,
-                          }}
-                        >
-                          {cat.count}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* RSS */}
-                <button
-                  onClick={() => navigate(`/explore`)}
-                  className="w-full glass-card p-4 flex items-center gap-3 text-sm text-left"
-                >
-                  <Rss size={16} style={{ color: `#f59e0b` }} />
-                  <div>
-                    <div className="font-medium text-foreground">订阅更新</div>
-                    <div className="text-xs" style={{ color: `rgba(232,234,246,0.4)` }}>获取最新文章推送</div>
-                  </div>
-                  <ChevronRight size={14} className="ml-auto" style={{ color: `rgba(232,234,246,0.3)` }} />
-                </button>
-              </div>
-            </div>
-
-            {/* Center: post list */}
-            <div className="flex-1 min-w-0">
-              {/* Featured post */}
-              <div className="mb-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <Flame size={16} style={{ color: `#f472b6` }} />
-                  <span className="text-sm font-semibold text-foreground">精选推荐</span>
-                </div>
-                <BlogCard post={posts[0]} variant="featured" />
-              </div>
-
-              {/* Filter tabs */}
-              <div className="flex items-center gap-2 mb-6 flex-wrap">
-                {[`最新`, `最热`, `关注`].map((tab) => (
+        {/* Content Section */}
+        <div className="flex flex-col lg:flex-row gap-12 pb-32">
+          {/* Left: Category Sidebar */}
+          <aside className="lg:w-64 space-y-8">
+            <div className="glass-card p-6">
+              <h3 className="text-sm font-black uppercase tracking-widest text-foreground/30 mb-6 flex items-center gap-2">
+                <Hash size={14} className="text-[var(--primary)]" />
+                分类浏览
+              </h3>
+              <div className="space-y-1">
+                {[{ name: `全部`, count: posts.length, icon: <Sparkles size={14} /> }, ...categories].map((cat) => (
                   <button
-                    key={tab}
-                    className="px-4 py-2 rounded-xl text-sm font-medium transition-all"
-                    style={{
-                      background: tab === `最新` ? `rgba(124,106,255,0.15)` : `rgba(255,255,255,0.05)`,
-                      color: tab === `最新` ? `#a78bfa` : `rgba(232,234,246,0.6)`,
-                      border: `1px solid ${tab === `最新` ? `rgba(124,106,255,0.3)` : `rgba(255,255,255,0.07)`}`,
-                    }}
+                    key={cat.name}
+                    onClick={() => setActiveCategory(cat.name)}
+                    className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-bold transition-all ${
+                      activeCategory === cat.name 
+                        ? "bg-[var(--primary)]/10 text-[var(--primary)] shadow-sm" 
+                        : "text-foreground/40 hover:text-foreground hover:bg-white/5"
+                    }`}
                   >
-                    {tab}
+                    <span className="flex items-center gap-3">
+                      {cat.icon}
+                      {cat.name}
+                    </span>
+                    <span className="text-[10px] opacity-40">{cat.count}</span>
                   </button>
                 ))}
               </div>
+            </div>
 
-              {/* Post grid */}
-              <div className="flex flex-col gap-5">
-                {filteredPosts.slice(1).map((post, i) => (
-                  <div
-                    key={post.id}
-                    style={{
-                      animationDelay: `${i * 0.08}s`,
-                      animation: `slide-in-up 0.5s ease forwards`,
-                      opacity: 0,
-                    }}
-                  >
-                    <BlogCard post={post} variant="default" />
+            <div className="glass-card p-6 bg-linear-to-br from-[var(--primary)]/10 to-transparent border-[var(--primary)]/10">
+               <Rss size={24} className="text-[var(--primary)] mb-4" />
+               <h4 className="font-bold mb-2">订阅周刊</h4>
+               <p className="text-xs text-foreground/40 mb-4 leading-relaxed">每周获取最受关注的技术文章与设计灵感。</p>
+               <button className="w-full py-2.5 rounded-xl bg-white text-black text-xs font-black hover:bg-white/90 transition-colors">
+                 立即订阅
+               </button>
+            </div>
+          </aside>
+
+          {/* Center: Feed */}
+          <div className="flex-1 space-y-10">
+            {/* Featured Section */}
+            <section>
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-1 h-6 bg-[var(--primary)] rounded-full" />
+                <h2 className="text-xl font-black">今日精选</h2>
+              </div>
+              <BlogCard post={posts[0]} variant="featured" />
+            </section>
+
+            {/* List Section */}
+            <section>
+              <div className="flex items-center justify-between mb-8 pt-4 border-t border-white/5">
+                <div className="flex items-center gap-6">
+                   {['最新', '热门', '关注'].map(tab => (
+                     <button key={tab} className={`text-sm font-black transition-colors ${tab === '最新' ? 'text-foreground' : 'text-foreground/30 hover:text-foreground'}`}>
+                       {tab}
+                     </button>
+                   ))}
+                </div>
+                <div className="text-[10px] font-bold text-foreground/30 uppercase tracking-widest">
+                  Showing {posts.length} results
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {posts.slice(1).map((post, i) => (
+                  <div key={post.id} className="animate-in fade-in slide-in-from-bottom-4 duration-700" style={{ animationDelay: `${i * 150}ms` }}>
+                    <BlogCard post={post} />
                   </div>
                 ))}
               </div>
 
-              <div className="text-center mt-8">
-                <button
-                  onClick={() => navigate(`/explore`)}
-                  className="btn-ghost-glass px-8 py-3 rounded-2xl text-sm font-medium text-foreground flex items-center gap-2 mx-auto"
-                >
-                  加载更多 <ChevronRight size={15} />
+              <div className="mt-16 flex justify-center">
+                <button className="btn-ghost-glass px-12 py-4 rounded-2xl text-sm font-black group">
+                  加载更多文章
+                  <ChevronRight size={16} className="inline ml-2 group-hover:translate-x-1 transition-transform" />
                 </button>
               </div>
-            </div>
-
-            {/* Right sidebar */}
-            <div className="hidden xl:block flex-shrink-0" style={{ width: 260 }}>
-              <div className="sticky" style={{ top: 80 }}>
-                {/* Trending */}
-                <div className="glass-card p-5 mb-4">
-                  <div className="flex items-center gap-2 mb-4 text-sm font-semibold text-foreground">
-                    <TrendingUp size={15} style={{ color: `#38bdf8` }} />
-                    热门文章
-                  </div>
-                  <div className="flex flex-col gap-3">
-                    {posts.slice(0, 4).map((post, i) => (
-                      <div
-                        key={post.id}
-                        onClick={() => navigate(`/post`)}
-                        className="flex items-start gap-3 cursor-pointer group"
-                      >
-                        <span
-                          className="text-xs font-black flex-shrink-0 mt-0.5"
-                          style={{
-                            color: i < 3 ? `#7c6aff` : `rgba(232,234,246,0.3)`,
-                            minWidth: 18,
-                          }}
-                        >
-                          {String(i + 1).padStart(2, `0`)}
-                        </span>
-                        <div>
-                          <p
-                            className="text-xs font-medium leading-snug transition-colors group-hover:text-purple-300"
-                            style={{ color: `rgba(232,234,246,0.8)` }}
-                          >
-                            {post.title}
-                          </p>
-                          <span className="text-xs mt-0.5" style={{ color: `rgba(232,234,246,0.35)` }}>
-                            {post.views.toLocaleString()} 阅读
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Tags cloud */}
-                <div className="glass-card p-5 mb-4">
-                  <div className="flex items-center gap-2 mb-4 text-sm font-semibold text-foreground">
-                    <Star size={15} style={{ color: `#f59e0b` }} />
-                    热门标签
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {trendingTags.map((tag) => (
-                      <button
-                        key={tag}
-                        onClick={() => navigate(`/explore`)}
-                        className="tag-glass"
-                      >
-                        {tag}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Write CTA */}
-                <div
-                  className="p-5 rounded-2xl text-center"
-                  style={{
-                    background: `linear-gradient(135deg, rgba(124,106,255,0.15), rgba(56,189,248,0.1))`,
-                    border: `1px solid rgba(124,106,255,0.2)`,
-                    backdropFilter: `blur(12px)`,
-                  }}
-                >
-                  <div className="text-2xl mb-2">✍️</div>
-                  <div className="text-sm font-semibold text-foreground mb-1">分享你的想法</div>
-                  <div className="text-xs mb-3" style={{ color: `rgba(232,234,246,0.5)` }}>
-                    加入创作者社区，记录和分享知识
-                  </div>
-                  <button
-                    onClick={() => isLoggedIn ? navigate(`/write`) : navigate(`/login`)}
-                    className="btn-primary-glass w-full py-2.5 rounded-xl text-sm font-medium"
-                  >
-                    {isLoggedIn ? `开始写作` : `立即加入`}
-                  </button>
-                </div>
-              </div>
-            </div>
+            </section>
           </div>
+
+          {/* Right: Trending */}
+          <aside className="lg:w-80 space-y-8">
+            <div className="glass-card p-6">
+               <h3 className="text-sm font-black uppercase tracking-widest text-foreground/30 mb-6 flex items-center gap-2">
+                 <TrendingUp size={14} className="text-pink-500" />
+                 本周热门
+               </h3>
+               <div className="space-y-6">
+                 {posts.map((post, i) => (
+                   <div key={post.id} className="flex gap-4 group cursor-pointer" onClick={() => navigate(`/post`)}>
+                     <span className="text-xl font-black text-foreground/10 group-hover:text-[var(--primary)]/20 transition-colors">
+                       {(i + 1).toString().padStart(2, '0')}
+                     </span>
+                     <div>
+                       <h4 className="text-sm font-bold leading-tight group-hover:text-[var(--primary)] transition-colors line-clamp-2">
+                         {post.title}
+                       </h4>
+                       <p className="text-[10px] text-foreground/30 mt-1">{post.views.toLocaleString()} 阅读</p>
+                     </div>
+                   </div>
+                 ))}
+               </div>
+            </div>
+
+            <div className="glass-card p-6">
+               <h3 className="text-sm font-black uppercase tracking-widest text-foreground/30 mb-4 flex items-center gap-2">
+                 <Star size={14} className="text-amber-400" />
+                 热门标签
+               </h3>
+               <div className="flex flex-wrap gap-2">
+                 {['React', 'Web3', 'AI', 'UI', 'Rust', 'DevOps', 'Vite'].map(tag => (
+                   <span key={tag} className="tag-glass cursor-pointer">
+                     {tag}
+                   </span>
+                 ))}
+               </div>
+            </div>
+          </aside>
         </div>
       </div>
-    </div>
+    </MainLayout>
   );
 };
-
-// Sparkles is used inline
-const Sparkles = ({ size }: { size: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
-  </svg>
-);
 
 export default Home;
