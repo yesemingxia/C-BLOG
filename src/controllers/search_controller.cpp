@@ -7,6 +7,7 @@
 namespace json = boost::json;
 namespace http = boost::beast::http;
 
+// @cuiruoni+搜索处理：从查询参数q获取关键词，调用search_service执行搜索
 static http::response<http::string_body> handle_search(
     const http::request<http::string_body>& req, const RouteParams& params) {
     auto it = params.query.find("q");

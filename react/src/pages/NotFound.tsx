@@ -1,9 +1,11 @@
 import { useLocation } from "react-router-dom";
 import { useEffect } from "react";
 
+// @cuiruoni+404页面组件：记录非法路由访问日志，提供返回首页链接
 const NotFound = () => {
   const location = useLocation();
 
+  // @cuiruoni+在控制台记录用户尝试访问的非法路径，便于排查路由配置问题
   useEffect(() => {
     console.error("404 Error: User attempted to access non-existent route:", location.pathname);
   }, [location.pathname]);

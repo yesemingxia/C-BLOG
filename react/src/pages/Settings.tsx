@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   User, Bell, Shield, Palette, Globe, CreditCard,
@@ -7,6 +7,7 @@ import {
 import GlassBackground from "../components/GlassBackground";
 import Navbar from "../components/Navbar";
 import { toast } from "sonner";
+import { profileApi, type UserProfile } from "../lib/api";
 
 const settingsSections = [
   { key: `profile`, label: `个人资料`, icon: User, color: `#7c6aff` },
@@ -32,19 +33,42 @@ const themeAccents = [
   { label: `翠绿`, color: `#34d399` },
 ];
 
+// @cuiruoni+设置页组件：5个设置分区（资料/通知/隐私/外观/账号），左侧导航+右侧内容布局
 const Settings = () => {
   const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState(`profile`);
   const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
 
-  // Profile form
-  const [name, setName] = useState(`Nova Chen`);
-  const [bio, setBio] = useState(`前端工程师 / UI设计爱好者 / 开源贡献者`);
-  const [location, setLocation] = useState(`上海，中国`);
-  const [website, setWebsite] = useState(`novachen.dev`);
-  const [twitter, setTwitter] = useState(`@novachen_dev`);
+  // Profile form - loaded from API
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [name, setName] = useState(``);
+  const [bio, setBio] = useState(``);
+  const [location, setLocation] = useState(``);
+  const [website, setWebsite] = useState(``);
+  const [twitter, setTwitter] = useState(``);
+  const [email, setEmail] = useState(``);
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  // @cuiruoni+从后端API加载用户资料
+  useEffect(() => {
+    const loadProfile = async () => {
+      setProfileLoading(true);
+      const profile = await profileApi.get();
+      if (profile) {
+        setName(profile.username);
+        setBio(profile.bio);
+        setLocation(profile.location);
+        setWebsite(profile.website);
+        setTwitter(profile.twitter);
+        setEmail(profile.email);
+      }
+      setProfileLoading(false);
+    };
+    loadProfile();
+  }, []);
 
   // Notifications
+  // @cuiruoni+通知开关状态：每个通知类型独立控制，默认开启点赞/评论/关注/精选，关闭提及
   const [notifStates, setNotifStates] = useState<Record<string, boolean>>({
     likes: true, comments: true, follows: true, mentions: false, newsletter: true,
   });
@@ -61,19 +85,39 @@ const Settings = () => {
   const [selectedAccent, setSelectedAccent] = useState(`#7c6aff`);
   const [fontSize, setFontSize] = useState(`medium`);
 
-  const handleSaveProfile = () => {
-    toast.success(`个人资料已保存！`);
+  const handleSaveProfile = async () => {
+    setSavingProfile(true);
+    const result = await profileApi.update({ email, bio, location, website, twitter });
+    setSavingProfile(false);
+    if (result) {
+      toast.success(`个人资料已保存！`);
+    } else {
+      toast.error(`保存失败，请稍后重试`);
+    }
   };
 
   const handleSaveNotif = () => {
     toast.success(`通知设置已保存！`);
   };
 
-  const handleChangePass = (e: React.FormEvent) => {
+  // @cuiruoni+密码修改校验：最少6位，通过后调用后端API
+  const [oldPass, setOldPass] = useState(``);
+  const [changingPass, setChangingPass] = useState(false);
+
+  const handleChangePass = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!oldPass) { toast.error(`请输入当前密码`); return; }
     if (newPass.length < 6) { toast.error(`密码至少需要6位`); return; }
-    toast.success(`密码修改成功！`);
-    setNewPass(``);
+    setChangingPass(true);
+    const ok = await profileApi.changePassword(oldPass, newPass);
+    setChangingPass(false);
+    if (ok) {
+      toast.success(`密码修改成功！`);
+      setOldPass(``);
+      setNewPass(``);
+    } else {
+      toast.error(`密码修改失败，请检查当前密码是否正确`);
+    }
   };
 
   const handleLogout = () => {
@@ -81,6 +125,7 @@ const Settings = () => {
     navigate(`/login`);
   };
 
+  // @cuiruoni+危险操作：删除账号需要二次确认，防止误操作
   const handleDeleteAccount = () => {
     toast.error(`账号删除功能需要二次确认`);
   };
@@ -193,6 +238,17 @@ const Settings = () => {
                     </div>
 
                     <div>
+                      <label className="text-xs font-medium mb-1.5 block" style={{ color: `rgba(232,234,246,0.6)` }}>邮箱地址</label>
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="glass-input w-full px-4 py-3 rounded-xl text-sm"
+                        placeholder="your@email.com"
+                      />
+                    </div>
+
+                    <div>
                       <label className="text-xs font-medium mb-1.5 block" style={{ color: `rgba(232,234,246,0.6)` }}>个人简介</label>
                       <textarea
                         value={bio}
@@ -234,9 +290,9 @@ const Settings = () => {
                     </div>
 
                     <div className="flex justify-end">
-                      <button onClick={handleSaveProfile} className="btn-primary-glass flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold">
+                      <button onClick={handleSaveProfile} disabled={savingProfile} className="btn-primary-glass flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold" style={{ opacity: savingProfile ? 0.65 : 1 }}>
                         <Check size={14} />
-                        保存修改
+                        {savingProfile ? `保存中...` : `保存修改`}
                       </button>
                     </div>
                   </div>
@@ -334,7 +390,7 @@ const Settings = () => {
                     <form onSubmit={handleChangePass} className="flex flex-col gap-3">
                       <div>
                         <label className="text-xs font-medium mb-1.5 block" style={{ color: `rgba(232,234,246,0.6)` }}>当前密码</label>
-                        <input type="password" className="glass-input w-full px-4 py-3 rounded-xl text-sm" placeholder="••••••••" />
+                        <input type="password" value={oldPass} onChange={(e) => setOldPass(e.target.value)} className="glass-input w-full px-4 py-3 rounded-xl text-sm" placeholder="••••••••" />
                       </div>
                       <div>
                         <label className="text-xs font-medium mb-1.5 block" style={{ color: `rgba(232,234,246,0.6)` }}>新密码</label>

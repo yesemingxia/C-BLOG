@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bold, Italic, Code2, List, ListOrdered, Quote,
@@ -8,7 +8,9 @@ import {
 import GlassBackground from "../components/GlassBackground";
 import Navbar from "../components/Navbar";
 import { toast } from "sonner";
+import { postsApi, tagsApi } from "../lib/api";
 
+// @cuiruoni+Markdown编辑器工具栏配置：定义每个工具按钮的图标、标签、插入语法和是否包裹选中文字
 const toolbarItems = [
   { icon: Bold, label: `粗体`, action: `**`, wrap: true },
   { icon: Italic, label: `斜体`, action: `*`, wrap: true },
@@ -20,25 +22,45 @@ const toolbarItems = [
   { icon: Image, label: `图片`, action: `![描述](url)`, wrap: false },
 ];
 
-const allTags = [`React`, `TypeScript`, `CSS`, `设计`, `前端`, `后端`, `AI`, `架构`, `工程化`, `职场`];
+// @cuiruoni+标签从后端API获取，不再硬编码
+const DEFAULT_TAGS = [`React`, `TypeScript`, `CSS`, `设计`, `前端`, `后端`, `AI`, `架构`, `工程化`, `职场`];
 
+// @cuiruoni+写作页组件：Markdown编辑器+分屏预览+发布面板，支持工具栏插入、标签选择、草稿保存
 const Write = () => {
   const navigate = useNavigate();
+  const [allTags, setAllTags] = useState<string[]>(DEFAULT_TAGS);
+
+  useEffect(() => {
+    // @cuiruoni+从/api/tags获取标签列表
+    tagsApi.list().then((res) => {
+      if (res?.data) {
+        const tagNames = res.data.map((t: { id?: number; name: string }) => t.name);
+        if (tagNames.length > 0) setAllTags(tagNames);
+      }
+    }).catch(() => {
+      // @cuiruoni+API失败时保留默认标签
+    });
+  }, []);
   const [title, setTitle] = useState(``);
   const [content, setContent] = useState(`# 开始写作\n\n在这里输入你的文章内容...\n\n## 小节标题\n\n正文内容。`);
+  // @cuiruoni+三种预览模式：edit(纯编辑)、split(分屏)、preview(纯预览)
   const [previewMode, setPreviewMode] = useState<`split` | `edit` | `preview`>(`split`);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState(``);
   const [showTagInput, setShowTagInput] = useState(false);
+  // @cuiruoni+发布面板：右侧滑出式面板，包含封面图、标签、摘要、可见性设置
   const [showPublishPanel, setShowPublishPanel] = useState(false);
   const [coverUrl, setCoverUrl] = useState(``);
+  const [summary, setSummary] = useState(``);
   const [saving, setSaving] = useState(false);
   const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // @cuiruoni+字数统计和阅读时间估算（按500字/分钟计算）
   const wordCount = content.replace(/\s+/g, ``).length;
   const readTime = Math.max(1, Math.ceil(wordCount / 500));
 
+  // @cuiruoni+工具栏插入逻辑：wrap模式包裹选中文字，非wrap模式在光标处插入语法
   const insertText = (item: typeof toolbarItems[0]) => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -58,6 +80,7 @@ const Write = () => {
     }, 0);
   };
 
+  // @cuiruoni+标签切换：最多选5个标签，已选则取消，未选则添加
   const toggleTag = (tag: string) => {
     setSelectedTags((prev) =>
       prev.includes(tag) ? prev.filter((t) => t !== tag) : prev.length < 5 ? [...prev, tag] : prev
@@ -72,21 +95,50 @@ const Write = () => {
     }
   };
 
-  const handleSaveDraft = () => {
+  const savePost = async (status: "draft" | "published") => {
+    if (!isLoggedIn) {
+      toast.error(`请先登录`);
+      navigate(`/login`);
+      return null;
+    }
+    if (!title.trim()) {
+      toast.error(`请填写文章标题`);
+      return null;
+    }
+
     setSaving(true);
-    setTimeout(() => {
+    try {
+      return await postsApi.create({
+        title: title.trim(),
+        content_md: content,
+        summary: summary.trim(),
+        status,
+        tags: selectedTags,
+      });
+    } finally {
       setSaving(false);
-      toast.success(`草稿已保存！`);
-    }, 800);
+    }
   };
 
-  const handlePublish = () => {
+  const handleSaveDraft = async () => {
+    const post = await savePost("draft");
+    if (post) toast.success(`草稿已保存！`);
+  };
+
+  // @cuiruoni+发布校验：标题必填、内容至少100字，通过后toast提示并跳转首页
+  const handlePublish = async () => {
     if (!title.trim()) { toast.error(`请填写文章标题`); return; }
     if (content.length < 100) { toast.error(`文章内容太短了`); return; }
+    const post = await savePost("published");
+    if (!post) {
+      toast.error(`发布失败，请稍后重试`);
+      return;
+    }
     toast.success(`文章发布成功！`);
-    setTimeout(() => navigate(`/`), 1200);
+    setTimeout(() => navigate(`/post?id=${post.id}`), 1200);
   };
 
+  // @cuiruoni+简易Markdown渲染：按行解析标题/引用/列表/代码块等语法，不依赖第三方库
   const renderPreview = (md: string) => {
     const lines = md.split(`\n`);
     return lines.map((line, i) => {
@@ -181,7 +233,9 @@ const Write = () => {
 
             <button
               onClick={handleSaveDraft}
+              disabled={saving}
               className="btn-ghost-glass flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-foreground"
+              style={{ opacity: saving ? 0.65 : 1 }}
             >
               <Save size={14} />
               <span className={saving ? `hidden` : ``}>保存草稿</span>
@@ -366,6 +420,8 @@ const Write = () => {
             <label className="text-sm font-medium text-foreground mb-2 block">文章摘要</label>
             <textarea
               placeholder="简短描述这篇文章的主要内容..."
+              value={summary}
+              onChange={(e) => setSummary(e.target.value)}
               rows={3}
               className="glass-input w-full px-4 py-3 rounded-xl text-sm resize-none"
             />
@@ -390,15 +446,19 @@ const Write = () => {
           <div className="flex gap-3">
             <button
               onClick={handleSaveDraft}
+              disabled={saving}
               className="btn-ghost-glass flex-1 py-3 rounded-xl text-sm font-medium text-foreground"
+              style={{ opacity: saving ? 0.65 : 1 }}
             >
-              保存草稿
+              {saving ? "保存中..." : "保存草稿"}
             </button>
             <button
               onClick={handlePublish}
+              disabled={saving}
               className="btn-primary-glass flex-1 py-3 rounded-xl text-sm font-semibold"
+              style={{ opacity: saving ? 0.65 : 1 }}
             >
-              立即发布
+              {saving ? "发布中..." : "立即发布"}
             </button>
           </div>
         </div>

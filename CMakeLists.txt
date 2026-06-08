@@ -11,10 +11,14 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ============================================================================
-# vcpkg 自动检测
+# vcpkg 自动检测：优先使用环境变量VCPKG_ROOT，回退到默认路径
 # ============================================================================
 if(NOT CMAKE_TOOLCHAIN_FILE)
-    set(VCPKG_ROOT "D:/vcpkg-master")
+    if(DEFINED ENV{VCPKG_ROOT})
+        set(VCPKG_ROOT "$ENV{VCPKG_ROOT}")
+    else()
+        set(VCPKG_ROOT "D:/vcpkg-master")
+    endif()
     if(EXISTS "${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
         set(CMAKE_TOOLCHAIN_FILE "${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
         message(STATUS "Using vcpkg toolchain: ${CMAKE_TOOLCHAIN_FILE}")
@@ -26,12 +30,16 @@ cmake_policy(SET CMP0144 NEW)
 cmake_policy(SET CMP0167 NEW)
 set(Boost_NO_WARN_NEW_VERSION ON)
 
-# ============================================================================
-# Boost 1.88（本地编译 D:\boost_1_88_0）
+# ============================================================================  
+# Boost：优先使用环境变量BOOST_ROOT，回退到默认路径
 # Beast 是 header-only，只需头文件路径，不需要链接
 # 需要链接的模块：system filesystem thread program_options json
-# ============================================================================
-set(BOOST_ROOT "D:/boost_1_88_0")
+# ============================================================================  
+if(DEFINED ENV{BOOST_ROOT})
+    set(BOOST_ROOT "$ENV{BOOST_ROOT}")
+else()
+    set(BOOST_ROOT "D:/boost_1_88_0")
+endif()
 set(Boost_NO_SYSTEM_PATHS ON)
 find_package(Boost 1.88 REQUIRED COMPONENTS
     system filesystem thread program_options json

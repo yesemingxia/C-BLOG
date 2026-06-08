@@ -4,37 +4,37 @@
 #include "utils/logger.h"
 #include "utils/mysqlx_helper.h"
 
+// @cuiruoni+搜索服务：MySQL全文索引+Redis缓存，缓存TTL为5分钟（300秒）
 namespace search_service {
 
+// @cuiruoni+搜索流程：先查Redis缓存→命中则直接返回→未命中则查MySQL全文索引→结果写入Redis缓存
 json::array search(const std::string& keyword) {
     if (keyword.empty()) return json::array{};
 
     std::string cache_key = "search:" + keyword;
-    auto ctx = RedisPool::instance().get();
+    auto ctx = RedisPool::instance().acquire();
     if (ctx) {
-        redisReply* reply = (redisReply*)redisCommand(ctx, "GET %s", cache_key.c_str());
+        redisReply* reply = (redisReply*)redisCommand(ctx.get(), "GET %s", cache_key.c_str());
         if (reply && reply->type == REDIS_REPLY_STRING) {
             std::string cached(reply->str);
             freeReplyObject(reply);
-            RedisPool::instance().release(ctx);
             try {
                 return json::parse(cached).as_array();
             } catch (...) {}
         }
         if (reply) freeReplyObject(reply);
-        RedisPool::instance().release(ctx);
     }
 
-    auto sess = MysqlPool::instance().get();
+    auto sess = MysqlPool::instance().acquire();
     if (!sess) return json::array{};
 
     try {
         auto result = sess->sql(
             "SELECT id, title, summary, status, view_count, created_at, "
-            "MATCH(title, content_md) AGAINST(:q IN NATURAL LANGUAGE MODE) AS relevance "
-            "FROM posts WHERE MATCH(title, content_md) AGAINST(:q IN NATURAL LANGUAGE MODE) "
+            "MATCH(title, content_md) AGAINST(? IN NATURAL LANGUAGE MODE) AS relevance "
+            "FROM posts WHERE MATCH(title, content_md) AGAINST(? IN NATURAL LANGUAGE MODE) "
             "ORDER BY relevance DESC LIMIT 20")
-            .bind("q", keyword).execute();
+            .bind(keyword).bind(keyword).execute();
 
         json::array arr;
         for (auto row : result) {
@@ -48,21 +48,16 @@ json::array search(const std::string& keyword) {
             arr.push_back(obj);
         }
 
-        MysqlPool::instance().release(sess);
-
-        ctx = RedisPool::instance().get();
         if (ctx) {
             std::string serialized = json::serialize(arr);
-            redisReply* reply = (redisReply*)redisCommand(ctx, "SET %s %s EX 300",
+            redisReply* reply = (redisReply*)redisCommand(ctx.get(), "SET %s %s EX 300",
                 cache_key.c_str(), serialized.c_str());
-            freeReplyObject(reply);
-            RedisPool::instance().release(ctx);
+            if (reply) freeReplyObject(reply);
         }
 
         return arr;
     } catch (const std::exception& e) {
         spdlog::error("Search error: {}", e.what());
-        MysqlPool::instance().release(sess);
         return json::array{};
     }
 }

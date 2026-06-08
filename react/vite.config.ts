@@ -7,12 +7,12 @@ import AutoImport from "unplugin-auto-import/vite";
 import checker from "vite-plugin-checker";
 import * as lucideIcons from "lucide-react";
 
-// 获取所有 lucide-react 导出的符号名
+// @cuiruoni+获取所有 lucide-react 导出的符号名，用于后续按需自动导入
 const allLucideExports = Object.keys(lucideIcons).filter(
   (key) => key !== "default",
 );
 
-// 扫描 src 目录，找出实际使用的 lucide 图标
+// @cuiruoni+扫描src目录找出实际使用的lucide图标，实现按需自动导入，减少打包体积
 function getUsedLucideIcons() {
   const usedIcons = new Set<string>();
   const srcPath = path.resolve(__dirname, "./src");
@@ -53,10 +53,13 @@ function getUsedLucideIcons() {
 const usedLucideIcons = getUsedLucideIcons();
 
 // https://vite.dev/config/
+// @cuiruoni+Vite构建配置：Tailwind CSS插件、lucide图标自动导入、TypeScript类型检查
 export default defineConfig({
   plugins: [
     react(),
+    // @cuiruoni+Tailwind CSS v4 Vite插件，替代PostCSS方式集成
     tailwindcss(),
+    // @cuiruoni+unplugin-auto-import：自动导入React hooks和lucide图标，无需手动import
     AutoImport({
       dts: "auto-imports.d.ts",
       include: [/\.[tj]sx?$/],
@@ -65,7 +68,7 @@ export default defineConfig({
         {
           "lucide-react": usedLucideIcons.filter((name) => name !== "Activity"),
         },
-        // Activity 同时存在于 react 和 lucide-react，设置高优先级让 lucide-react 胜出且不产生警告
+        // @cuiruoni+Activity同时存在于react和lucide-react，设置高优先级让lucide-react胜出且不产生警告
         {
           from: "lucide-react",
           imports: ["Activity"],
@@ -76,6 +79,7 @@ export default defineConfig({
         enabled: false,
       },
     }),
+    // @cuiruoni+vite-plugin-checker：构建时进行TypeScript类型检查，提前发现类型错误
     checker({
       typescript: {
         tsconfigPath: "tsconfig.app.json",
@@ -83,9 +87,19 @@ export default defineConfig({
       enableBuild: true,
     }),
   ],
+  // @cuiruoni+路径别名：@映射到src目录，简化导入路径
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+    },
+  },
+  // @cuiruoni+开发代理：将/api请求转发到后端，避免跨域和硬编码端口
+  server: {
+    proxy: {
+      "/api": {
+        target: "http://localhost:8088",
+        changeOrigin: true,
+      },
     },
   },
 });

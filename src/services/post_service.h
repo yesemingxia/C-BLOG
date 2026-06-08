@@ -16,5 +16,6 @@ Post get_post(int64_t id);
 int64_t create_post(const Post& post);
 bool update_post(int64_t id, const Post& post);
 bool delete_post(int64_t id);
+bool can_modify_post(int64_t post_id, int64_t user_id, const std::string& role);
 
 }

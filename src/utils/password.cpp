@@ -15,6 +15,7 @@ std::string generate_salt(size_t length) {
 
 std::string hash_password(const std::string& password, const std::string& salt,
                           int iterations, int key_length) {
+    // @cuiruoni+使用OpenSSL的PKCS5_PBKDF2_HMAC实现，SHA256摘要，100000次迭代防暴力破解
     std::vector<unsigned char> key(key_length);
     PKCS5_PBKDF2_HMAC(password.c_str(), static_cast<int>(password.size()),
                        reinterpret_cast<const unsigned char*>(salt.c_str()),

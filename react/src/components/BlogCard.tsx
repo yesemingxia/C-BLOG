@@ -22,13 +22,16 @@ interface BlogCardProps {
   variant?: "default" | "featured" | "compact";
 }
 
+// @cuiruoni+博客卡片组件：支持三种展示变体——default(标准卡片)、featured(特色大图)、compact(紧凑列表项)
 const BlogCard = ({ post, variant = "default" }: BlogCardProps) => {
   const navigate = useNavigate();
 
+  // @cuiruoni+点击卡片跳转到文章详情页，通过URL参数传递文章ID
   const handleClick = () => {
     navigate(`/post?id=${post.id}`);
   };
 
+  // @cuiruoni+featured变体：横向大图+文字布局，用于首页精选文章展示
   if (variant === "featured") {
     return (
       <div
@@ -94,6 +97,7 @@ const BlogCard = ({ post, variant = "default" }: BlogCardProps) => {
     );
   }
 
+  // @cuiruoni+compact变体：缩略图+标题一行式布局，用于侧边栏推荐和列表视图
   if (variant === "compact") {
     return (
       <div
@@ -121,6 +125,7 @@ const BlogCard = ({ post, variant = "default" }: BlogCardProps) => {
     );
   }
 
+  // @cuiruoni+default变体：纵向卡片布局，封面图+标签+标题+摘要+作者信息，用于文章网格
   return (
     <div
       data-cmp="BlogCard"

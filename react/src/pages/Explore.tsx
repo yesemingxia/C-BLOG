@@ -1,71 +1,87 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, Filter, TrendingUp, Grid, List, SlidersHorizontal } from "lucide-react";
+import { Search, TrendingUp, Grid, List, SlidersHorizontal } from "lucide-react";
 import BlogCard, { BlogPost } from "../components/BlogCard";
 import GlassBackground from "../components/GlassBackground";
 import Navbar from "../components/Navbar";
-
-const allPosts: BlogPost[] = [
-  {
-    id: 1, title: `探索现代前端架构的无限可能`, excerpt: `深入了解 React 19 的新特性，探讨如何在大型项目中构建高性能、可维护的前端架构体系。`,
-    cover: `https://picsum.photos/seed/blog1/600/400`, author: `Nova Chen`, authorAvatar: `NC`, date: `2025-06-15`, readTime: 8, likes: 248, comments: 32, views: 3420, tags: [`React`, `架构`, `前端`],
-  },
-  {
-    id: 2, title: `CSS 液态玻璃效果完全指南`, excerpt: `从原理到实践，全面掌握 Glassmorphism 设计语言，打造令人惊艳的 UI 界面效果。`,
-    cover: `https://picsum.photos/seed/blog2/600/400`, author: `Luna Park`, authorAvatar: `LP`, date: `2025-06-12`, readTime: 12, likes: 512, comments: 67, views: 8930, tags: [`CSS`, `设计`, `UI`],
-  },
-  {
-    id: 3, title: `TypeScript 5.0 类型体操深度解析`, excerpt: `条件类型、映射类型、模板字面量类型，掌握高级特性让你的代码更优雅。`,
-    cover: `https://picsum.photos/seed/blog3/600/400`, author: `Kai Zhao`, authorAvatar: `KZ`, date: `2025-06-10`, readTime: 15, likes: 189, comments: 28, views: 4210, tags: [`TypeScript`, `编程`],
-  },
-  {
-    id: 4, title: `AI 辅助编程的未来展望`, excerpt: `GPT-4o、Claude 3.5 等大模型如何改变软件开发模式，以及开发者的应对策略。`,
-    cover: `https://picsum.photos/seed/blog4/600/400`, author: `Mia Liu`, authorAvatar: `ML`, date: `2025-06-08`, readTime: 10, likes: 673, comments: 94, views: 12500, tags: [`AI`, `未来`, `开发`],
-  },
-  {
-    id: 5, title: `Rust 在 Web 开发中的崛起`, excerpt: `WebAssembly、边缘计算、高性能后端，Rust 正在成为 Web 开发者的新宠儿。`,
-    cover: `https://picsum.photos/seed/blog5/600/400`, author: `Alex Wu`, authorAvatar: `AW`, date: `2025-06-06`, readTime: 11, likes: 321, comments: 45, views: 5670, tags: [`Rust`, `WebAssembly`],
-  },
-  {
-    id: 6, title: `构建全栈应用的最佳实践 2025`, excerpt: `Next.js 15 + Prisma + tRPC 技术栈深度实战，从零到上线的完整流程记录。`,
-    cover: `https://picsum.photos/seed/blog6/600/400`, author: `Sam Jin`, authorAvatar: `SJ`, date: `2025-06-04`, readTime: 20, likes: 445, comments: 58, views: 7890, tags: [`Next.js`, `全栈`],
-  },
-  {
-    id: 7, title: `微前端架构实战经验分享`, excerpt: `从单体应用到微前端，我们踩过的那些坑和最终的解决方案全记录。`,
-    cover: `https://picsum.photos/seed/blog7/600/400`, author: `Ben Li`, authorAvatar: `BL`, date: `2025-06-02`, readTime: 18, likes: 267, comments: 41, views: 6120, tags: [`架构`, `微前端`],
-  },
-  {
-    id: 8, title: `Docker + Kubernetes 容器化部署`, excerpt: `从零开始学习容器技术，掌握现代 DevOps 工作流的核心技能。`,
-    cover: `https://picsum.photos/seed/blog8/600/400`, author: `Zoe Wang`, authorAvatar: `ZW`, date: `2025-05-30`, readTime: 16, likes: 398, comments: 52, views: 9340, tags: [`DevOps`, `Docker`],
-  },
-  {
-    id: 9, title: `设计系统从零搭建实践指南`, excerpt: `组件库、设计令牌、文档驱动开发，打造企业级设计系统的完整方案。`,
-    cover: `https://picsum.photos/seed/blog9/600/400`, author: `Ella Song`, authorAvatar: `ES`, date: `2025-05-28`, readTime: 14, likes: 534, comments: 73, views: 11200, tags: [`设计系统`, `UI`, `前端`],
-  },
-];
+import { postsApi, searchApi, type ApiPost } from "../lib/api";
 
 const tabs = [`全部`, `技术`, `设计`, `AI`, `工程化`];
 const sortOptions = [`最新`, `最热门`, `最多阅读`];
 
+/* Convert API post to BlogCard formats */
+// @cuiruoni+API数据格式转换：将后端ApiPost结构映射为BlogCard所需的BlogPost格式，填充默认值
+function toBlogPost(p: ApiPost): BlogPost {
+  return {
+    id: p.id,
+    title: p.title,
+    excerpt: p.excerpt ?? "",
+    cover: `https://picsum.photos/seed/blog${p.id}/600/400`,
+    author: p.author ?? "Unknown",
+    authorAvatar: (p.author ?? "U").split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase(),
+    date: p.created_at?.slice(0, 10) ?? "",
+    readTime: Math.max(5, Math.round((p.content?.length ?? 500) / 200)),
+    likes: p.likes ?? 0,
+    comments: p.comments_count ?? 0,
+    views: p.views ?? 0,
+    tags: p.tags ?? [],
+  };
+}
+
+// @cuiruoni+探索页组件：API数据获取+搜索防抖+分类筛选+排序+网格/列表视图切换
 const Explore = () => {
   const navigate = useNavigate();
   const [searchVal, setSearchVal] = useState(``);
   const [activeTab, setActiveTab] = useState(`全部`);
   const [sortBy, setSortBy] = useState(`最新`);
+  // @cuiruoni+视图模式切换：grid(卡片网格)和list(紧凑列表)两种展示方式
   const [viewMode, setViewMode] = useState<`grid` | `list`>(`grid`);
   const [showFilter, setShowFilter] = useState(false);
   const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
+  const [apiPosts, setApiPosts] = useState<ApiPost[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const filtered = allPosts.filter((p) => {
-    const matchSearch = !searchVal || p.title.includes(searchVal) || p.tags.some((t) => t.includes(searchVal));
+  const fetchPosts = async () => {
+    setLoading(true);
+    const data = await postsApi.list(1, 20);
+    setApiPosts(data);
+    setLoading(false);
+  };
+
+  /* Fetch posts from API on mount */
+  useEffect(() => {
+    fetchPosts();
+  }, []);
+
+  /* Search from API when user types */
+  // @cuiruoni+搜索防抖：400ms延迟后发起搜索请求，避免每次按键都调用API
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (!searchVal.trim()) {
+        fetchPosts();
+        return;
+      }
+      setLoading(true);
+      const results = await searchApi.search(searchVal);
+      setApiPosts(results);
+      setLoading(false);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchVal]);
+
+  const blogPosts = apiPosts.map(toBlogPost);
+
+  // @cuiruoni+分类筛选逻辑：根据标签名匹配不同分类，支持多标签归类
+  const filtered = blogPosts.filter((p) => {
     const matchTab = activeTab === `全部` ||
       (activeTab === `技术` && p.tags.some((t) => [`React`, `TypeScript`, `Rust`, `微前端`].includes(t))) ||
       (activeTab === `设计` && p.tags.some((t) => [`设计`, `UI`, `CSS`, `设计系统`].includes(t))) ||
       (activeTab === `AI` && p.tags.some((t) => [`AI`].includes(t))) ||
       (activeTab === `工程化` && p.tags.some((t) => [`DevOps`, `Docker`, `架构`, `全栈`, `Next.js`].includes(t)));
-    return matchSearch && matchTab;
+    return matchTab;
   });
 
+  // @cuiruoni+排序逻辑：按最新(id降序)、最热门(likes降序)、最多阅读(views降序)排序
   const sorted = [...filtered].sort((a, b) => {
     if (sortBy === `最热门`) return b.likes - a.likes;
     if (sortBy === `最多阅读`) return b.views - a.views;
@@ -92,12 +108,12 @@ const Explore = () => {
           }}
         >
           <div className="mx-auto px-6" style={{ maxWidth: 1440 }}>
-            <h1 className="text-4xl font-black text-foreground mb-3">
+            <h1 className="text-4xl font-black text-foreground mb-3" style={{ fontFamily: 'var(--font-display)' }}>
               <TrendingUp size={28} className="inline mr-3 mb-1" style={{ color: `#7c6aff` }} />
-              发现精彩内容
+              Discover
             </h1>
             <p className="text-base mb-8" style={{ color: `rgba(232,234,246,0.55)` }}>
-              探索来自全球创作者的优质文章、技术分享和深度思考
+              Explore quality articles and insights from creators worldwide
             </p>
 
             {/* Search bar */}
@@ -109,7 +125,7 @@ const Explore = () => {
               />
               <input
                 type="text"
-                placeholder="搜索文章、标签、作者..."
+                placeholder="Search articles, tags, authors..."
                 value={searchVal}
                 onChange={(e) => setSearchVal(e.target.value)}
                 className="glass-input w-full pl-12 pr-4 py-4 rounded-2xl text-base"
@@ -122,7 +138,6 @@ const Explore = () => {
         <div className="mx-auto px-6 py-8" style={{ maxWidth: 1440 }}>
           {/* Toolbar */}
           <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
-            {/* Category tabs */}
             <div className="flex items-center gap-2 flex-wrap">
               {tabs.map((tab) => (
                 <button
@@ -140,7 +155,6 @@ const Explore = () => {
               ))}
             </div>
 
-            {/* Controls */}
             <div className="flex items-center gap-3">
               <div className="relative">
                 <button
@@ -151,7 +165,7 @@ const Explore = () => {
                   {sortBy}
                 </button>
                 <div
-                  className="absolute right-0 top-12 w-40 glass rounded-xl overflow-hidden"
+                  className="absolute right-0 top-12 w-40 bento-card rounded-xl overflow-hidden"
                   style={{
                     opacity: showFilter ? 1 : 0,
                     pointerEvents: showFilter ? `auto` : `none`,
@@ -197,9 +211,10 @@ const Explore = () => {
             </div>
           </div>
 
-          {/* Results count */}
           <div className="mb-5 text-sm" style={{ color: `rgba(232,234,246,0.4)` }}>
-            共找到 <span style={{ color: `#a78bfa` }}>{sorted.length}</span> 篇文章
+            {loading ? "Loading..." : (
+              <>Found <span style={{ color: `#a78bfa` }}>{sorted.length}</span> articles</>
+            )}
           </div>
 
           {/* Post grid/list */}
@@ -220,20 +235,19 @@ const Explore = () => {
             ))}
           </div>
 
-          <div className={sorted.length === 0 ? `` : `hidden`}>
+          <div className={sorted.length === 0 && !loading ? `` : `hidden`}>
             <div className="text-center py-20">
               <div className="text-4xl mb-4">🔍</div>
-              <div className="text-foreground font-medium mb-2">未找到相关文章</div>
+              <div className="text-foreground font-medium mb-2">No articles found</div>
               <div className="text-sm" style={{ color: `rgba(232,234,246,0.4)` }}>
-                尝试更换搜索关键词或分类
+                Try different keywords or categories
               </div>
             </div>
           </div>
 
-          {/* Load more */}
           <div className={sorted.length > 0 ? `text-center mt-10` : `hidden`}>
             <button className="btn-ghost-glass px-10 py-3.5 rounded-2xl text-sm font-medium text-foreground">
-              加载更多文章
+              Load More
             </button>
           </div>
         </div>

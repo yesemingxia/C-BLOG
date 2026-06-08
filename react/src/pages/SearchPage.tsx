@@ -17,20 +17,25 @@ const allPosts: BlogPost[] = [
 const hotSearches = [`React 19`, `Glassmorphism`, `TypeScript 5`, `AI 编程`, `设计系统`, `Tailwind CSS`, `前端架构`];
 const hotTags = [`React`, `CSS`, `TypeScript`, `设计`, `AI`, `架构`, `前端`, `工程化`];
 
+// @cuiruoni+搜索页组件：热门搜索推荐+历史记录+文章/标签/作者三维度搜索结果
 const SearchPage = () => {
   const navigate = useNavigate();
   const [query, setQuery] = useState(``);
   const [results, setResults] = useState<BlogPost[]>([]);
+  // @cuiruoni+搜索历史记录，最多保留6条
   const [recentSearches, setRecentSearches] = useState([`React 19 新特性`, `前端架构设计`]);
+  // @cuiruoni+三维度结果切换：posts(文章)、tags(标签)、authors(作者)
   const [activeTab, setActiveTab] = useState<`posts` | `tags` | `authors`>(`posts`);
   const [hasSearched, setHasSearched] = useState(false);
   const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // @cuiruoni+页面加载后自动聚焦搜索框，提升用户体验
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 300);
   }, []);
 
+  // @cuiruoni+本地搜索实现：匹配标题、标签、作者名，同时更新搜索历史
   const doSearch = (q: string) => {
     if (!q.trim()) return;
     setHasSearched(true);

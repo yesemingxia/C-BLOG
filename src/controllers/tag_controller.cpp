@@ -10,9 +10,10 @@
 namespace json = boost::json;
 namespace http = boost::beast::http;
 
+// @cuiruoni+获取所有标签列表，LEFT JOIN统计每个标签关联的文章数
 static http::response<http::string_body> handle_list_tags(
     const http::request<http::string_body>& req, const RouteParams& params) {
-    auto sess = MysqlPool::instance().get();
+    auto sess = MysqlPool::instance().acquire();
     if (!sess) {
         http::response<http::string_body> res{http::status::internal_server_error, req.version()};
         res.body() = response::error(500, "Database connection failed");
@@ -36,15 +37,12 @@ static http::response<http::string_body> handle_list_tags(
             arr.push_back(obj);
         }
 
-        MysqlPool::instance().release(sess);
-
         http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(json::object{{"tags", arr}});
         res.prepare_payload();
         return res;
     } catch (const std::exception& e) {
         spdlog::error("List tags error: {}", e.what());
-        MysqlPool::instance().release(sess);
         http::response<http::string_body> res{http::status::internal_server_error, req.version()};
         res.body() = response::error(500, "Internal server error");
         res.prepare_payload();
@@ -52,6 +50,7 @@ static http::response<http::string_body> handle_list_tags(
     }
 }
 
+// @cuiruoni+获取指定标签下的文章列表，INNER JOIN只返回有文章的标签
 static http::response<http::string_body> handle_tag_posts(
     const http::request<http::string_body>& req, const RouteParams& params) {
     auto it = params.path.find("id");
@@ -63,7 +62,7 @@ static http::response<http::string_body> handle_tag_posts(
     }
 
     int tag_id = std::stoi(it->second);
-    auto sess = MysqlPool::instance().get();
+    auto sess = MysqlPool::instance().acquire();
     if (!sess) {
         http::response<http::string_body> res{http::status::internal_server_error, req.version()};
         res.body() = response::error(500, "Database connection failed");
@@ -75,8 +74,8 @@ static http::response<http::string_body> handle_tag_posts(
         auto result = sess->sql(
             "SELECT p.id, p.title, p.summary, p.status, p.view_count, p.created_at "
             "FROM posts p INNER JOIN post_tags pt ON p.id = pt.post_id "
-            "WHERE pt.tag_id = :tid ORDER BY p.created_at DESC")
-            .bind("tid", tag_id).execute();
+            "WHERE pt.tag_id = ? ORDER BY p.created_at DESC")
+            .bind(tag_id).execute();
 
         json::array arr;
         for (auto row : result) {
@@ -90,15 +89,12 @@ static http::response<http::string_body> handle_tag_posts(
             arr.push_back(obj);
         }
 
-        MysqlPool::instance().release(sess);
-
         http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(json::object{{"posts", arr}});
         res.prepare_payload();
         return res;
     } catch (const std::exception& e) {
         spdlog::error("Tag posts error: {}", e.what());
-        MysqlPool::instance().release(sess);
         http::response<http::string_body> res{http::status::internal_server_error, req.version()};
         res.body() = response::error(500, "Internal server error");
         res.prepare_payload();

@@ -4,6 +4,7 @@ import { Bell, Heart, MessageCircle, UserPlus, Star, Check, CheckCheck, Trash2, 
 import GlassBackground from "../components/GlassBackground";
 import Navbar from "../components/Navbar";
 
+// @cuiruoni+通知类型定义：5种通知——like(点赞)、comment(评论)、follow(关注)、system(系统)、mention(提及)
 type NotifType = `like` | `comment` | `follow` | `system` | `mention`;
 
 interface Notification {
@@ -29,6 +30,7 @@ const notifs: Notification[] = [
   { id: 9, type: `like`, user: `Ella Song`, userAvatar: `ES`, content: `点赞了你的文章`, postTitle: `AI 辅助编程的未来展望`, time: `3天前`, read: true },
 ];
 
+// @cuiruoni+通知类型配置：每种类型对应独立的图标、颜色和背景色，用于渲染差异化样式
 const typeConfig: Record<NotifType, { icon: typeof Bell; color: string; bg: string }> = {
   like: { icon: Heart, color: `#f472b6`, bg: `rgba(244,114,182,0.12)` },
   comment: { icon: MessageCircle, color: `#38bdf8`, bg: `rgba(56,189,248,0.12)` },
@@ -39,12 +41,15 @@ const typeConfig: Record<NotifType, { icon: typeof Bell; color: string; bg: stri
 
 const filterOptions = [`全部`, `点赞`, `评论`, `关注`, `系统`];
 
+// @cuiruoni+通知中心组件：5种通知类型展示、已读/未读状态、筛选过滤、批量标记已读和删除
 const Notifications = () => {
   const navigate = useNavigate();
+  // @cuiruoni+通知列表状态：支持单条标记已读、删除、全部标记已读等操作
   const [items, setItems] = useState(notifs);
   const [filter, setFilter] = useState(`全部`);
   const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
 
+  // @cuiruoni+筛选逻辑：按通知类型过滤，"评论"包含comment和mention两种类型
   const filtered = items.filter((n) => {
     if (filter === `全部`) return true;
     if (filter === `点赞`) return n.type === `like`;

@@ -1,0 +1,3 @@
+-- @cuiruoni+初始管理员账户，需要通过注册API创建后手动更新role为admin
+-- INSERT INTO users (username, password_hash, salt, email, role) VALUES ('admin', '', '', 'admin@blog.com', 'admin');
+-- 注意：密码通过PBKDF2+随机盐哈希存储，无法在SQL中直接插入，需通过API注册后修改role

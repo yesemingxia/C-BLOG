@@ -3,8 +3,12 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ── Font: Space Grotesk for headings, system sans for body ── */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
 @theme inline {
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
@@ -27,6 +31,9 @@
   --glass-border: rgba(255, 255, 255, 0.4);
   --glass-blur: 12px;
   --selection: rgba(99, 102, 241, 0.15);
+  --neon-blue: #38bdf8;
+  --neon-purple: #7c6aff;
+  --bento-radius: 16px;
 }
 
 [data-theme='evening'] {
@@ -39,6 +46,8 @@
   --glass-border: rgba(255, 255, 255, 0.1);
   --glass-blur: 16px;
   --selection: rgba(139, 92, 246, 0.2);
+  --neon-blue: #38bdf8;
+  --neon-purple: #a78bfa;
 }
 
 [data-theme='night'] {
@@ -51,6 +60,8 @@
   --glass-border: rgba(124, 106, 255, 0.2);
   --glass-blur: 20px;
   --selection: rgba(124, 106, 255, 0.25);
+  --neon-blue: #38bdf8;
+  --neon-purple: #7c6aff;
 }
 
 @layer base {
@@ -58,9 +69,57 @@
     @apply bg-background text-foreground font-sans antialiased selection:bg-[var(--selection)];
     transition: background-color 0.8s cubic-bezier(0.4, 0, 0.2, 1), color 0.8s cubic-bezier(0.4, 0, 0.2, 1);
   }
+
+  /* Accessible focus outlines */
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
 }
 
 @layer utilities {
+  /* ── Bento card: glassmorphism with neon border highlight ── */
+  .bento-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    border-radius: var(--bento-radius);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .bento-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, rgba(124, 106, 255, 0.3), rgba(56, 189, 248, 0.1), transparent);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+
+  .bento-card:hover {
+    transform: scale(1.02);
+    box-shadow:
+      0 12px 48px 0 rgba(0, 0, 0, 0.12),
+      0 0 20px rgba(124, 106, 255, 0.15),
+      0 0 40px rgba(56, 189, 248, 0.08);
+  }
+
+  .bento-card:hover::before {
+    opacity: 1;
+  }
+
+  /* Legacy alias */
   .glass-card {
     background: var(--glass-bg);
     backdrop-filter: blur(var(--glass-blur));
@@ -91,12 +150,12 @@
   }
 
   .gradient-text {
-    @apply font-bold bg-clip-text text-transparent bg-linear-to-r from-[var(--primary)] to-sky-400;
+    @apply font-bold bg-clip-text text-transparent bg-linear-to-r from-[var(--neon-purple)] to-[var(--neon-blue)];
   }
 
   .btn-primary-glass {
     @apply relative overflow-hidden transition-all duration-300;
-    background: linear-gradient(135deg, var(--primary), #38bdf8);
+    background: linear-gradient(135deg, var(--neon-purple), var(--neon-blue));
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
   }
 
@@ -119,9 +178,54 @@
   .tag-glass:hover {
     background: rgba(124, 106, 255, 0.2);
   }
+
+  /* ── Typing cursor blink ── */
+  .typing-cursor::after {
+    content: '|';
+    animation: blink 1s step-end infinite;
+    color: var(--neon-blue);
+    font-weight: 100;
+    margin-left: 2px;
+  }
+
+  /* ── Tech stack marquee ── */
+  .marquee-track {
+    display: flex;
+    width: max-content;
+    animation: marquee 30s linear infinite;
+  }
+
+  .marquee-track:hover {
+    animation-play-state: paused;
+  }
+
+  /* ── Neon glow utility ── */
+  .neon-glow {
+    text-shadow:
+      0 0 7px rgba(124, 106, 255, 0.6),
+      0 0 20px rgba(124, 106, 255, 0.3),
+      0 0 40px rgba(56, 189, 248, 0.15);
+  }
+
+  .neon-border-glow {
+    box-shadow:
+      0 0 5px rgba(124, 106, 255, 0.3),
+      0 0 15px rgba(124, 106, 255, 0.15),
+      inset 0 0 5px rgba(124, 106, 255, 0.05);
+  }
 }
 
-/* Animations */
+/* ── Keyframes ── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
 @keyframes slide-in-up {
   from {
     opacity: 0;
@@ -144,4 +248,25 @@
 
 .animate-pulse-glow {
   animation: pulse-glow 3s infinite ease-in-out;
+}
+
+/* ── Reduced motion: fallback static layout ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .bento-card:hover {
+    transform: none;
+  }
+
+  .glass-card:hover {
+    transform: none;
+  }
+
+  .marquee-track {
+    animation: none;
+  }
 }

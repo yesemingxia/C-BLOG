@@ -5,7 +5,13 @@ CREATE TABLE IF NOT EXISTS users (
     salt VARCHAR(64) NOT NULL,
     email VARCHAR(100),
     role ENUM('admin','user') DEFAULT 'user',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    bio VARCHAR(500) DEFAULT '',
+    avatar VARCHAR(500) DEFAULT '',
+    location VARCHAR(100) DEFAULT '',
+    website VARCHAR(200) DEFAULT '',
+    twitter VARCHAR(100) DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS posts (
@@ -19,6 +25,8 @@ CREATE TABLE IF NOT EXISTS posts (
     view_count INT DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_posts_user_id(user_id),
+    INDEX idx_posts_status(status),
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
@@ -43,6 +51,7 @@ CREATE TABLE IF NOT EXISTS comments (
     content TEXT NOT NULL,
     parent_id BIGINT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_comments_post_id(post_id),
     FOREIGN KEY (post_id) REFERENCES posts(id),
     FOREIGN KEY (parent_id) REFERENCES comments(id)
 );

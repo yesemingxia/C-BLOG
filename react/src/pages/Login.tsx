@@ -1,27 +1,52 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Mail, Lock, User, Sparkles, ArrowRight, Github, Twitter, ChevronLeft } from "lucide-react";
 import GlassBackground from "../components/GlassBackground";
+import { authApi } from "../lib/api";
 import { toast } from "sonner";
 
+// @cuiruoni+登录/注册页组件：同一页面切换登录和注册表单，调用authApi并使用toast反馈结果
 const Login = () => {
   const navigate = useNavigate();
+  // @cuiruoni+isLogin控制表单在登录/注册模式间切换
   const [isLogin, setIsLogin] = useState(true);
   const [showPwd, setShowPwd] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState("");
+  // @cuiruoni+loading状态防止重复提交
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // @cuiruoni+表单提交处理：根据isLogin状态调用不同的API，成功后toast提示并导航到首页
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setTimeout(() => {
+
+    try {
+      if (isLogin) {
+        const res = await authApi.login(email, password);
+        if (res.success) {
+          window.dispatchEvent(new Event("auth-change"));
+          toast.success("Login successful! Welcome back!");
+          navigate("/");
+        } else {
+          toast.error(res.message || "Login failed");
+        }
+      } else {
+        const res = await authApi.register(username, email, password);
+        if (res.success) {
+          window.dispatchEvent(new Event("auth-change"));
+          toast.success("Account created! Welcome aboard!");
+          navigate("/");
+        } else {
+          toast.error(res.message || "Registration failed");
+        }
+      }
+    } catch (err) {
+      toast.error("Something went wrong. Please try again.");
+    } finally {
       setLoading(false);
-      toast.success(isLogin ? `登录成功，欢迎回来！` : `注册成功，欢迎加入！`);
-      localStorage.setItem(`blog_logged_in`, `true`);
-      navigate(`/`);
-    }, 1200);
+    }
   };
 
   return (
@@ -29,29 +54,29 @@ const Login = () => {
       <GlassBackground showParticles={true} />
 
       {/* Back button */}
-      <button 
+      <button
         onClick={() => navigate('/')}
         className="absolute top-8 left-8 flex items-center gap-2 text-sm font-bold text-foreground/40 hover:text-foreground transition-colors group z-20"
       >
         <ChevronLeft size={18} className="group-hover:-translate-x-1 transition-transform" />
-        返回首页
+        Back to Home
       </button>
 
       {/* Main card */}
       <div className="w-full max-w-[440px] z-10 animate-in fade-in zoom-in-95 duration-700">
-        <div className="glass-card p-8 md:p-10 relative overflow-hidden border-white/10 shadow-2xl">
+        <div className="bento-card p-8 md:p-10 relative overflow-hidden shadow-2xl">
           {/* Top glow */}
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-1 bg-[var(--primary)] rounded-full blur-md opacity-50" />
-          
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-1 bg-gradient-to-r from-[var(--neon-purple)] to-[var(--neon-blue)] rounded-full blur-md opacity-50" />
+
           <div className="text-center mb-10">
-            <div className="w-16 h-16 rounded-2xl mx-auto mb-6 bg-linear-to-br from-[var(--primary)] to-sky-400 flex items-center justify-center shadow-lg shadow-indigo-500/20 animate-pulse-glow">
+            <div className="w-16 h-16 rounded-2xl mx-auto mb-6 bg-linear-to-br from-[var(--neon-purple)] to-[var(--neon-blue)] flex items-center justify-center shadow-lg shadow-purple-500/20 animate-pulse-glow">
               <Sparkles size={32} className="text-white fill-white/20" />
             </div>
-            <h1 className="text-3xl font-black tracking-tight mb-2">
-              {isLogin ? "欢迎回来" : "加入 Luminary"}
+            <h1 className="text-3xl font-black tracking-tight mb-2" style={{ fontFamily: 'var(--font-display)' }}>
+              {isLogin ? "Welcome Back" : "Join Nova.dev"}
             </h1>
             <p className="text-sm text-foreground/40 font-medium">
-              {isLogin ? "在创意世界中继续您的旅程" : "开启您的数字化写作乐园"}
+              {isLogin ? "Continue your creative journey" : "Start your digital writing adventure"}
             </p>
           </div>
 
@@ -69,19 +94,20 @@ const Login = () => {
 
           <div className="flex items-center gap-4 mb-8">
             <div className="h-px flex-1 bg-white/5" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-foreground/20">或者邮箱登录</span>
+            <span className="text-[10px] font-black uppercase tracking-widest text-foreground/20">or use email</span>
             <div className="h-px flex-1 bg-white/5" />
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {!isLogin && (
               <div className="space-y-1.5 animate-in slide-in-from-top-2 duration-300">
-                <label className="text-xs font-bold text-foreground/40 ml-1">用户名</label>
+                <label htmlFor="reg-username" className="text-xs font-bold text-foreground/40 ml-1">Username</label>
                 <div className="relative group">
-                  <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-foreground/20 group-focus-within:text-[var(--primary)] transition-colors" />
+                  <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-foreground/20 group-focus-within:text-[var(--neon-purple)] transition-colors" />
                   <input
+                    id="reg-username"
                     type="text"
-                    placeholder="您的昵称"
+                    placeholder="Your nickname"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     className="glass-input w-full pl-12 pr-4 py-3.5 rounded-2xl text-sm font-medium"
@@ -92,10 +118,11 @@ const Login = () => {
             )}
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-foreground/40 ml-1">电子邮箱</label>
+              <label htmlFor="login-email" className="text-xs font-bold text-foreground/40 ml-1">Email</label>
               <div className="relative group">
-                <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-foreground/20 group-focus-within:text-[var(--primary)] transition-colors" />
+                <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-foreground/20 group-focus-within:text-[var(--neon-purple)] transition-colors" />
                 <input
+                  id="login-email"
                   type="email"
                   placeholder="name@example.com"
                   value={email}
@@ -108,14 +135,15 @@ const Login = () => {
 
             <div className="space-y-1.5">
               <div className="flex justify-between items-center ml-1">
-                <label className="text-xs font-bold text-foreground/40">密码</label>
+                <label htmlFor="login-pwd" className="text-xs font-bold text-foreground/40">Password</label>
                 {isLogin && (
-                   <button type="button" className="text-[10px] font-black uppercase text-[var(--primary)] hover:underline">忘记密码?</button>
+                  <button type="button" className="text-[10px] font-black uppercase text-[var(--neon-purple)] hover:underline">Forgot password?</button>
                 )}
               </div>
               <div className="relative group">
-                <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-foreground/20 group-focus-within:text-[var(--primary)] transition-colors" />
+                <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-foreground/20 group-focus-within:text-[var(--neon-purple)] transition-colors" />
                 <input
+                  id="login-pwd"
                   type={showPwd ? "text" : "password"}
                   placeholder="••••••••"
                   value={password}
@@ -142,7 +170,7 @@ const Login = () => {
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
                 <>
-                  {isLogin ? "立即登录" : "创建账号"}
+                  {isLogin ? "Sign In" : "Create Account"}
                   <ArrowRight size={18} />
                 </>
               )}
@@ -151,19 +179,19 @@ const Login = () => {
 
           <div className="text-center mt-8 pt-6 border-t border-white/5">
             <p className="text-sm text-foreground/40 font-medium">
-              {isLogin ? "还没有账号?" : "已经有账号了?"}
+              {isLogin ? "Don't have an account?" : "Already have an account?"}
               <button
                 onClick={() => setIsLogin(!isLogin)}
-                className="ml-2 text-[var(--primary)] font-black hover:underline"
+                className="ml-2 text-[var(--neon-purple)] font-black hover:underline"
               >
-                {isLogin ? "立即注册" : "返回登录"}
+                {isLogin ? "Sign Up" : "Sign In"}
               </button>
             </p>
           </div>
         </div>
-        
+
         <p className="text-center text-[10px] text-foreground/20 font-bold uppercase tracking-widest mt-8">
-          登录即表示您同意我们的服务条款与隐私政策
+          By signing in you agree to our Terms of Service and Privacy Policy
         </p>
       </div>
     </div>

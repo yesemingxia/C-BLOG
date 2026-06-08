@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Heart, MessageCircle, Bookmark, Share2, ArrowLeft,
   Eye, Clock, ThumbsUp, Send, MoreHorizontal, Copy, Twitter, Link
@@ -7,127 +7,26 @@ import {
 import GlassBackground from "../components/GlassBackground";
 import Navbar from "../components/Navbar";
 import { toast } from "sonner";
+import { commentsApi, postsApi, type ApiComment, type ApiPost } from "../lib/api";
 
-const mockContent = `
-## 前言
-
-在现代 Web 开发中，前端架构的重要性不言而喻。随着应用规模的不断扩大，如何设计一个**高性能、可维护**的前端架构体系成为了每个前端工程师必须面对的挑战。
-
-## 核心概念
-
-### 1. 组件化思想
-
-React 的核心思想是组件化。每个 UI 元素都可以被抽象为一个独立的组件，组件之间通过 Props 进行通信。
-
-\`\`\`typescript
-interface ButtonProps {
-  variant?: 'primary' | 'secondary';
-  size?: 'sm' | 'md' | 'lg';
-  onClick?: () => void;
-  children: React.ReactNode;
-}
-
-const Button = ({ variant = 'primary', size = 'md', onClick, children }: ButtonProps) => {
-  return (
-    <button 
-      className={\`btn btn-\${variant} btn-\${size}\`}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-};
-\`\`\`
-
-### 2. 状态管理策略
-
-在大型应用中，状态管理是架构设计的核心问题。我们需要根据状态的范围和生命周期来选择合适的状态管理方案：
-
-- **本地状态**: 使用 \`useState\` 或 \`useReducer\`
-- **跨组件状态**: 使用 \`Context API\` 或状态管理库
-- **服务端状态**: 使用 \`@tanstack/react-query\`
-
-### 3. 性能优化
-
-性能优化是前端架构中不可或缺的一环。常见的优化策略包括：
-
-1. **代码分割** - 使用动态 import 实现按需加载
-2. **虚拟化** - 对长列表使用虚拟滚动
-3. **Memoization** - 合理使用 \`useMemo\` 和 \`useCallback\`
-4. **图片优化** - 使用 WebP 格式和懒加载
-
-## 实战案例
-
-在我们最近的项目重构中，我们将一个拥有 200+ 页面的单体应用成功迁移到了微前端架构。这个过程中我们总结了以下几点经验：
-
-> "好的架构不是一开始就设计出来的，而是在不断迭代中演进出来的。"
-
-通过合理的模块划分和边界定义，我们将应用拆分为 8 个独立的微应用，每个微应用都有自己独立的部署流程和技术栈选择空间。
-
-## 总结
-
-现代前端架构的设计需要在**灵活性**、**可维护性**和**性能**之间找到平衡。没有放之四海而皆准的方案，关键是根据项目的实际需求做出合适的技术决策。
-`;
-
-const comments = [
-  {
-    id: 1,
-    author: `Luna Park`,
-    avatar: `LP`,
-    time: `2小时前`,
-    content: `写得非常详细！特别是关于微前端架构的部分，正好是我们团队目前遇到的问题，受益匪浅。`,
-    likes: 24,
-    replies: [
-      {
-        id: 2,
-        author: `Nova Chen`,
-        avatar: `NC`,
-        time: `1小时前`,
-        content: `谢谢你的认可！如果有具体的问题欢迎继续探讨 😊`,
-        likes: 8,
-      },
-    ],
-  },
-  {
-    id: 3,
-    author: `Kai Zhao`,
-    avatar: `KZ`,
-    time: `5小时前`,
-    content: `状态管理那一块讲得很清晰，赞！不过我觉得 Zustand 也值得一提，在中小型项目里非常好用。`,
-    likes: 15,
-    replies: [],
-  },
-  {
-    id: 4,
-    author: `Mia Liu`,
-    avatar: `ML`,
-    time: `1天前`,
-    content: `已收藏！这篇文章讲到了我之前一直没搞懂的概念，终于豁然开朗了。`,
-    likes: 31,
-    replies: [],
-  },
-];
-
-const toc = [
-  { title: `前言`, level: 2 },
-  { title: `核心概念`, level: 2 },
-  { title: `组件化思想`, level: 3 },
-  { title: `状态管理策略`, level: 3 },
-  { title: `性能优化`, level: 3 },
-  { title: `实战案例`, level: 2 },
-  { title: `总结`, level: 2 },
-];
-
+// @cuiruoni+文章详情页组件：阅读进度条+侧边操作栏+目录导航+评论系统，三栏布局
 const Post = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [liked, setLiked] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
+  // @cuiruoni+阅读进度：基于文章内容区域的滚动位置计算百分比
   const [progress, setProgress] = useState(0);
   const [commentText, setCommentText] = useState(``);
   const [showShare, setShowShare] = useState(false);
+  const [post, setPost] = useState<ApiPost | null>(null);
+  const [comments, setComments] = useState<ApiComment[]>([]);
+  const [loading, setLoading] = useState(true);
   const contentRef = useRef<HTMLDivElement>(null);
   const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
+  const postId = Number(searchParams.get(`id`) ?? 1);
 
+  // @cuiruoni+滚动监听计算阅读进度：被动监听优化性能，卸载时移除监听
   useEffect(() => {
     const handleScroll = () => {
       const el = contentRef.current;
@@ -142,17 +41,37 @@ const Post = () => {
     return () => window.removeEventListener(`scroll`, handleScroll);
   }, []);
 
+  useEffect(() => {
+    const loadPost = async () => {
+      setLoading(true);
+      const [postData, commentData] = await Promise.all([
+        postsApi.get(postId),
+        commentsApi.list(postId),
+      ]);
+      setPost(postData);
+      setComments(commentData);
+      setLoading(false);
+    };
+    loadPost();
+  }, [postId]);
+
   const handleCopyLink = () => {
     navigator.clipboard.writeText(window.location.href);
     toast.success(`链接已复制！`);
     setShowShare(false);
   };
 
-  const handleComment = (e: React.FormEvent) => {
+  const handleComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!commentText.trim()) return;
-    toast.success(`评论发布成功！`);
+    const created = await commentsApi.create(postId, commentText.trim());
+    if (!created) {
+      toast.error(`评论发布失败，请稍后重试`);
+      return;
+    }
+    setComments((prev) => [...prev, created]);
     setCommentText(``);
+    toast.success(`评论发布成功！`);
   };
 
   const handleLogout = () => {
@@ -160,66 +79,20 @@ const Post = () => {
     navigate(`/login`);
   };
 
-  // Render markdown-like content
-  const renderContent = (text: string) => {
-    const lines = text.split(`\n`);
-    return lines.map((line, i) => {
-      if (line.startsWith(`## `)) {
-        return (
-          <h2 key={i} className="text-2xl font-black text-foreground mt-10 mb-4" style={{ color: `#e8eaf6` }}>
-            {line.slice(3)}
-          </h2>
-        );
-      }
-      if (line.startsWith(`### `)) {
-        return (
-          <h3 key={i} className="text-lg font-bold mt-7 mb-3" style={{ color: `#c4b5fd` }}>
-            {line.slice(4)}
-          </h3>
-        );
-      }
-      if (line.startsWith(`> `)) {
-        return (
-          <blockquote
-            key={i}
-            className="my-4 pl-5 py-3 italic text-base"
-            style={{
-              borderLeft: `3px solid #7c6aff`,
-              background: `rgba(124,106,255,0.07)`,
-              color: `rgba(232,234,246,0.75)`,
-              borderRadius: `0 0.75rem 0.75rem 0`,
-            }}
-          >
-            {line.slice(2)}
-          </blockquote>
-        );
-      }
-      if (line.startsWith("```")) {
-        return null;
-      }
-      if (line.startsWith(`- **`)) {
-        const parts = line.slice(2);
-        return (
-          <li key={i} className="text-sm mb-1.5" style={{ color: `rgba(232,234,246,0.7)` }}>
-            {parts}
-          </li>
-        );
-      }
-      if (/^\d+\./.test(line)) {
-        return (
-          <li key={i} className="text-sm mb-1.5 list-decimal ml-5" style={{ color: `rgba(232,234,246,0.7)` }}>
-            {line.replace(/^\d+\.\s*/, ``)}
-          </li>
-        );
-      }
-      if (line.trim() === ``) return <div key={i} className="h-2" />;
-      return (
-        <p key={i} className="text-sm leading-relaxed mb-1" style={{ color: `rgba(232,234,246,0.75)` }}>
-          {line}
-        </p>
-      );
-    });
-  };
+  const articleTitle = post?.title ?? `加载中...`;
+  const articleContent = post?.content_html ?? post?.content_md ?? ``;
+  const articleDate = post?.created_at?.slice(0, 10) ?? ``;
+  const articleViews = post?.views ?? post?.view_count ?? 0;
+  const articleTags = post?.tags?.length ? post.tags : [];
+  const displayComments = comments.map((comment) => ({
+    id: comment.id,
+    author: comment.author ?? comment.author_name ?? `匿名用户`,
+    avatar: (comment.author ?? comment.author_name ?? `匿名`).slice(0, 2).toUpperCase(),
+    time: comment.created_at?.slice(0, 10) ?? ``,
+    content: comment.content,
+    likes: 0,
+    replies: [],
+  }));
 
   return (
     <div data-cmp="Post" className="min-h-screen relative">
@@ -258,7 +131,7 @@ const Post = () => {
                   >
                     <MessageCircle size={18} style={{ color: `rgba(232,234,246,0.6)` }} />
                   </div>
-                  <span className="text-xs" style={{ color: `rgba(232,234,246,0.4)` }}>32</span>
+                  <span className="text-xs" style={{ color: `rgba(232,234,246,0.4)` }}>{displayComments.length}</span>
                 </button>
 
                 <button
@@ -328,13 +201,13 @@ const Post = () => {
               {/* Article header */}
               <div className="mb-8">
                 <div className="flex gap-2 mb-4 flex-wrap">
-                  {[`React`, `架构`, `前端`].map((tag) => (
+                  {articleTags.map((tag) => (
                     <span key={tag} className="tag-glass">{tag}</span>
                   ))}
                 </div>
 
                 <h1 className="text-3xl font-black text-foreground leading-tight mb-4">
-                  探索现代前端架构的无限可能
+                  {loading ? `加载中...` : articleTitle}
                 </h1>
 
                 <div className="flex items-center justify-between flex-wrap gap-4 mb-6">
@@ -347,7 +220,7 @@ const Post = () => {
                     </div>
                     <div>
                       <div className="font-semibold text-sm text-foreground">Nova Chen</div>
-                      <div className="text-xs" style={{ color: `rgba(232,234,246,0.4)` }}>2025年6月15日</div>
+                      <div className="text-xs" style={{ color: `rgba(232,234,246,0.4)` }}>{articleDate}</div>
                     </div>
                     <button
                       className="px-3 py-1 rounded-full text-xs font-medium transition-all"
@@ -363,7 +236,7 @@ const Post = () => {
 
                   <div className="flex items-center gap-4 text-xs" style={{ color: `rgba(232,234,246,0.4)` }}>
                     <span className="flex items-center gap-1"><Clock size={12} />8 min read</span>
-                    <span className="flex items-center gap-1"><Eye size={12} />3,420 阅读</span>
+                    <span className="flex items-center gap-1"><Eye size={12} />{articleViews.toLocaleString()} 阅读</span>
                     <button className="btn-ghost-glass p-2 rounded-xl">
                       <MoreHorizontal size={14} />
                     </button>
@@ -373,7 +246,7 @@ const Post = () => {
                 {/* Cover image */}
                 <div className="rounded-2xl overflow-hidden" style={{ height: 380 }}>
                   <img
-                    src="https://picsum.photos/seed/blog1/1200/500"
+                    src={post?.cover ?? `https://picsum.photos/seed/blog${postId}/1200/500`}
                     alt="封面"
                     className="w-full h-full object-cover"
                   />
@@ -383,7 +256,20 @@ const Post = () => {
               {/* Article content */}
               <div ref={contentRef} className="glass-card p-8 mb-8">
                 <div className="prose max-w-none">
-                  {renderContent(mockContent)}
+                  {loading ? (
+                    <div className="text-center py-12" style={{ color: `rgba(232,234,246,0.4)` }}>
+                      加载中...
+                    </div>
+                  ) : articleContent ? (
+                    <div
+                      className="article-content"
+                      dangerouslySetInnerHTML={{ __html: articleContent }}
+                    />
+                  ) : (
+                    <div className="text-center py-12" style={{ color: `rgba(232,234,246,0.4)` }}>
+                      文章内容为空
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -398,7 +284,7 @@ const Post = () => {
                   {liked ? 249 : 248}
                 </button>
                 <button className="flex items-center gap-2 text-sm" style={{ color: `rgba(232,234,246,0.6)` }}>
-                  <MessageCircle size={18} />32
+                  <MessageCircle size={18} />{displayComments.length}
                 </button>
                 <button
                   onClick={() => setBookmarked(!bookmarked)}
@@ -416,7 +302,7 @@ const Post = () => {
               <div className="glass-card p-6">
                 <h3 className="text-lg font-bold text-foreground mb-6 flex items-center gap-2">
                   <MessageCircle size={20} style={{ color: `#7c6aff` }} />
-                  评论 ({comments.length})
+                  评论 ({displayComments.length})
                 </h3>
 
                 {/* Comment input */}
@@ -454,7 +340,7 @@ const Post = () => {
 
                 {/* Comments list */}
                 <div className="flex flex-col gap-6">
-                  {comments.map((comment) => (
+                  {displayComments.map((comment) => (
                     <div key={comment.id}>
                       <div className="flex gap-3">
                         <div

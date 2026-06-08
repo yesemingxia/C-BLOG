@@ -4,25 +4,20 @@
 #include "services/post_service.h"
 #include "utils/logger.h"
 #include "utils/response.h"
+#include "utils/sanitize.h"
 
 #include <boost/json.hpp>
 
 namespace json = boost::json;
 namespace http = boost::beast::http;
 
-static bool extract_user_from_token(const http::request<http::string_body>& req,
-                                    int64_t& user_id, std::string& username, std::string& role) {
-    std::string auth_field(req[http::field::authorization]);
-    if (auth_field.empty() || auth_field.substr(0, 7) != "Bearer ") return false;
-    std::string token = auth_field.substr(7);
-    return auth_service::validate_token(token, user_id, username, role);
-}
-
+// @cuiruoni+文章列表：支持分页（page/page_size）和状态过滤（status），返回文章摘要列表
 static http::response<http::string_body> handle_list_posts(
     const http::request<http::string_body>& req, const RouteParams& params) {
     int page = 1, page_size = 10;
     std::string status = "all";
 
+    // @cuiruoni+从查询参数中提取分页和过滤条件
     auto it = params.query.find("page");
     if (it != params.query.end() && !it->second.empty()) page = std::stoi(it->second);
     it = params.query.find("page_size");
@@ -70,11 +65,12 @@ static http::response<http::string_body> handle_get_post(
     return res;
 }
 
+// @cuiruoni+创建文章：需要token鉴权，自动渲染Markdown→HTML和生成摘要
 static http::response<http::string_body> handle_create_post(
     const http::request<http::string_body>& req, const RouteParams& params) {
     int64_t user_id = 0;
     std::string username, role;
-    if (!extract_user_from_token(req, user_id, username, role)) {
+    if (!auth_service::extract_user_from_token(req, user_id, username, role)) {
         http::response<http::string_body> res{http::status::unauthorized, req.version()};
         res.body() = response::error(401, "Unauthorized");
         res.prepare_payload();
@@ -107,11 +103,12 @@ static http::response<http::string_body> handle_create_post(
     }
 }
 
+// @cuiruoni+更新文章：需要token鉴权，自动重新渲染Markdown→HTML
 static http::response<http::string_body> handle_update_post(
     const http::request<http::string_body>& req, const RouteParams& params) {
     int64_t user_id = 0;
     std::string username, role;
-    if (!extract_user_from_token(req, user_id, username, role)) {
+    if (!auth_service::extract_user_from_token(req, user_id, username, role)) {
         http::response<http::string_body> res{http::status::unauthorized, req.version()};
         res.body() = response::error(401, "Unauthorized");
         res.prepare_payload();
@@ -127,6 +124,12 @@ static http::response<http::string_body> handle_update_post(
     }
 
     int64_t id = std::stoll(it->second);
+    if (!post_service::can_modify_post(id, user_id, role)) {
+        http::response<http::string_body> res{http::status::forbidden, req.version()};
+        res.body() = response::error(403, "Forbidden");
+        res.prepare_payload();
+        return res;
+    }
 
     try {
         auto body = json::parse(req.body()).as_object();
@@ -151,11 +154,12 @@ static http::response<http::string_body> handle_update_post(
     }
 }
 
+// @cuiruoni+删除文章：需要token鉴权
 static http::response<http::string_body> handle_delete_post(
     const http::request<http::string_body>& req, const RouteParams& params) {
     int64_t user_id = 0;
     std::string username, role;
-    if (!extract_user_from_token(req, user_id, username, role)) {
+    if (!auth_service::extract_user_from_token(req, user_id, username, role)) {
         http::response<http::string_body> res{http::status::unauthorized, req.version()};
         res.body() = response::error(401, "Unauthorized");
         res.prepare_payload();
@@ -171,6 +175,13 @@ static http::response<http::string_body> handle_delete_post(
     }
 
     int64_t id = std::stoll(it->second);
+    if (!post_service::can_modify_post(id, user_id, role)) {
+        http::response<http::string_body> res{http::status::forbidden, req.version()};
+        res.body() = response::error(403, "Forbidden");
+        res.prepare_payload();
+        return res;
+    }
+
     if (!post_service::delete_post(id)) {
         http::response<http::string_body> res{http::status::internal_server_error, req.version()};
         res.body() = response::error(500, "Failed to delete post");
@@ -184,6 +195,7 @@ static http::response<http::string_body> handle_delete_post(
     return res;
 }
 
+// @cuiruoni+注册文章RESTful路由：GET列表/详情，POST创建，PUT更新，DELETE删除
 void register_post_routes(Router& router) {
     router.add_route("GET", "/api/posts", handle_list_posts);
     router.add_route("GET", "/api/posts/:id", handle_get_post);
