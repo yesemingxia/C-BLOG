@@ -48,6 +48,8 @@ const Settings = () => {
   const [twitter, setTwitter] = useState(``);
   const [email, setEmail] = useState(``);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState(``);
+  const [showAvatarInput, setShowAvatarInput] = useState(false);
 
   // @cuiruoni+从后端API加载用户资料
   useEffect(() => {
@@ -61,6 +63,7 @@ const Settings = () => {
         setWebsite(profile.website);
         setTwitter(profile.twitter);
         setEmail(profile.email);
+        if (profile.avatar) setAvatarUrl(profile.avatar);
       }
       setProfileLoading(false);
     };
@@ -68,9 +71,14 @@ const Settings = () => {
   }, []);
 
   // Notifications
-  // @cuiruoni+通知开关状态：每个通知类型独立控制，默认开启点赞/评论/关注/精选，关闭提及
-  const [notifStates, setNotifStates] = useState<Record<string, boolean>>({
-    likes: true, comments: true, follows: true, mentions: false, newsletter: true,
+  // @cuiruoni+通知开关状态：每个通知类型独立控制，从localStorage恢复，默认开启点赞/评论/关注/精选，关闭提及
+  const [notifStates, setNotifStates] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem(`blog_notif_prefs`);
+      return saved ? JSON.parse(saved) : { likes: true, comments: true, follows: true, mentions: false, newsletter: true };
+    } catch {
+      return { likes: true, comments: true, follows: true, mentions: false, newsletter: true };
+    }
   });
 
   // Privacy
@@ -87,7 +95,7 @@ const Settings = () => {
 
   const handleSaveProfile = async () => {
     setSavingProfile(true);
-    const result = await profileApi.update({ email, bio, location, website, twitter });
+    const result = await profileApi.update({ email, bio, avatar: avatarUrl || undefined, location, website, twitter });
     setSavingProfile(false);
     if (result) {
       toast.success(`个人资料已保存！`);
@@ -97,6 +105,7 @@ const Settings = () => {
   };
 
   const handleSaveNotif = () => {
+    localStorage.setItem(`blog_notif_prefs`, JSON.stringify(notifStates));
     toast.success(`通知设置已保存！`);
   };
 
@@ -189,16 +198,26 @@ const Settings = () => {
                   {/* Avatar */}
                   <div className="flex items-center gap-5 mb-8">
                     <div className="relative">
-                      <div
-                        className="w-20 h-20 rounded-2xl flex items-center justify-center text-xl font-black"
-                        style={{
-                          background: `linear-gradient(135deg, #7c6aff, #f472b6)`,
-                          boxShadow: `0 4px 20px rgba(124,106,255,0.3)`,
-                        }}
-                      >
-                        NC
-                      </div>
+                      {avatarUrl ? (
+                        <img
+                          src={avatarUrl}
+                          alt="头像"
+                          className="w-20 h-20 rounded-2xl object-cover"
+                          style={{ boxShadow: `0 4px 20px rgba(124,106,255,0.3)` }}
+                        />
+                      ) : (
+                        <div
+                          className="w-20 h-20 rounded-2xl flex items-center justify-center text-xl font-black"
+                          style={{
+                            background: `linear-gradient(135deg, #7c6aff, #f472b6)`,
+                            boxShadow: `0 4px 20px rgba(124,106,255,0.3)`,
+                          }}
+                        >
+                          {name ? name.slice(0, 2).toUpperCase() : `U`}
+                        </div>
+                      )}
                       <button
+                        onClick={() => setShowAvatarInput(!showAvatarInput)}
                         className="absolute -bottom-1 -right-1 w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:opacity-80"
                         style={{ background: `linear-gradient(135deg, #7c6aff, #38bdf8)` }}
                       >
@@ -207,10 +226,25 @@ const Settings = () => {
                     </div>
                     <div>
                       <div className="text-sm font-semibold text-foreground mb-1">更换头像</div>
-                      <div className="text-xs" style={{ color: `rgba(232,234,246,0.4)` }}>支持 JPG / PNG，最大 2MB</div>
-                      <button className="mt-2 text-xs btn-ghost-glass px-3 py-1.5 rounded-lg text-foreground">
-                        上传图片
-                      </button>
+                      <div className="text-xs" style={{ color: `rgba(232,234,246,0.4)` }}>输入头像图片链接</div>
+                      {showAvatarInput && (
+                        <div className="mt-2 flex gap-2">
+                          <input
+                            type="text"
+                            placeholder="输入头像 URL..."
+                            value={avatarUrl}
+                            onChange={(e) => setAvatarUrl(e.target.value)}
+                            className="glass-input px-3 py-1.5 rounded-lg text-xs"
+                            style={{ width: 220 }}
+                          />
+                          <button
+                            onClick={() => setShowAvatarInput(false)}
+                            className="text-xs btn-ghost-glass px-2 py-1.5 rounded-lg text-foreground"
+                          >
+                            确定
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
 

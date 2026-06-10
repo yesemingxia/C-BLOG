@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Bell, Heart, MessageCircle, UserPlus, Star, Check, CheckCheck, Trash2, Filter } from "lucide-react";
 import GlassBackground from "../components/GlassBackground";
 import Navbar from "../components/Navbar";
+import { notificationsApi, ApiNotification } from "../lib/api";
 
 // @cuiruoni+通知类型定义：5种通知——like(点赞)、comment(评论)、follow(关注)、system(系统)、mention(提及)
 type NotifType = `like` | `comment` | `follow` | `system` | `mention`;
@@ -18,17 +19,7 @@ interface Notification {
   postTitle?: string;
 }
 
-const notifs: Notification[] = [
-  { id: 1, type: `like`, user: `Luna Park`, userAvatar: `LP`, content: `点赞了你的文章`, postTitle: `探索现代前端架构的无限可能`, time: `2分钟前`, read: false },
-  { id: 2, type: `comment`, user: `Kai Zhao`, userAvatar: `KZ`, content: `评论了你的文章：「TypeScript 那一块讲得很清晰，赞！」`, postTitle: `CSS 液态玻璃效果完全指南`, time: `15分钟前`, read: false },
-  { id: 3, type: `follow`, user: `Mia Liu`, userAvatar: `ML`, content: `关注了你`, time: `1小时前`, read: false },
-  { id: 4, type: `like`, user: `Alex Wu`, userAvatar: `AW`, content: `点赞了你的文章`, postTitle: `TypeScript 5.0 类型体操`, time: `2小时前`, read: true },
-  { id: 5, type: `mention`, user: `Sam Jin`, userAvatar: `SJ`, content: `在评论中提到了你`, postTitle: `构建全栈应用的最佳实践`, time: `3小时前`, read: true },
-  { id: 6, type: `system`, user: `Luminary`, userAvatar: `⚡`, content: `你的文章《探索现代前端架构》已被设为精选推荐`, time: `1天前`, read: true },
-  { id: 7, type: `comment`, user: `Zoe Wang`, userAvatar: `ZW`, content: `评论了你的文章：「已收藏！写得真棒！」`, postTitle: `设计系统从零搭建实践指南`, time: `1天前`, read: true },
-  { id: 8, type: `follow`, user: `Ben Li`, userAvatar: `BL`, content: `关注了你`, time: `2天前`, read: true },
-  { id: 9, type: `like`, user: `Ella Song`, userAvatar: `ES`, content: `点赞了你的文章`, postTitle: `AI 辅助编程的未来展望`, time: `3天前`, read: true },
-];
+const notifs: Notification[] = [];
 
 // @cuiruoni+通知类型配置：每种类型对应独立的图标、颜色和背景色，用于渲染差异化样式
 const typeConfig: Record<NotifType, { icon: typeof Bell; color: string; bg: string }> = {
@@ -49,6 +40,23 @@ const Notifications = () => {
   const [filter, setFilter] = useState(`全部`);
   const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
 
+  // @cuiruoni+从API加载通知列表，将ApiNotification映射为本地Notification接口
+  useEffect(() => {
+    notificationsApi.list().then((data) => {
+      const mapped: Notification[] = data.map((n) => ({
+        id: n.id,
+        type: n.type as NotifType,
+        user: n.actor_name || `系统`,
+        userAvatar: n.actor_name ? n.actor_name.split(` `).map((s) => s[0]).join(``).slice(0, 2) : `⚡`,
+        content: n.content,
+        time: n.created_at,
+        read: !!n.is_read,
+        postTitle: n.post_title || undefined,
+      }));
+      setItems(mapped);
+    });
+  }, []);
+
   // @cuiruoni+筛选逻辑：按通知类型过滤，"评论"包含comment和mention两种类型
   const filtered = items.filter((n) => {
     if (filter === `全部`) return true;
@@ -62,14 +70,17 @@ const Notifications = () => {
   const unreadCount = items.filter((n) => !n.read).length;
 
   const markAllRead = () => {
+    notificationsApi.markAllRead();
     setItems((prev) => prev.map((n) => ({ ...n, read: true })));
   };
 
   const markRead = (id: number) => {
+    notificationsApi.markRead(id);
     setItems((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
   };
 
   const deleteItem = (id: number) => {
+    notificationsApi.delete(id);
     setItems((prev) => prev.filter((n) => n.id !== id));
   };
 

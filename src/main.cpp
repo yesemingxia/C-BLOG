@@ -10,7 +10,9 @@
 #include "controllers/comment_controller.h"
 #include "controllers/admin_controller.h"
 #include "controllers/tag_controller.h"
+#include "controllers/contact_controller.h"
 #include "controllers/search_controller.h"
+#include "controllers/notification_controller.h"
 #include "middleware/auth_middleware.h"
 
 #include <boost/beast/http.hpp>
@@ -84,6 +86,8 @@ int main(int argc, char* argv[]) {
         register_admin_routes(router);
         register_tag_routes(router);
         register_search_routes(router);
+        register_notification_routes(router);
+        register_contact_routes(router);
 
         // @cuiruoni+健康检查端点，包含MySQL/Redis连接池状态
         router.add_route("GET", "/", [](const auto& req, const auto&) {
@@ -99,13 +103,6 @@ int main(int argc, char* argv[]) {
                 {"message", "cpp-blog is running"},
                 {"data", data}
             });
-            res.prepare_payload();
-            return res;
-        });
-
-        // @cuiruoni+全局OPTIONS预检请求处理，配合CORS中间件使用
-        router.add_route("OPTIONS", "/*", [](const auto& req, const auto&) {
-            http::response<http::string_body> res{http::status::ok, req.version()};
             res.prepare_payload();
             return res;
         });

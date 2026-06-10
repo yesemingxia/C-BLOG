@@ -1,10 +1,12 @@
 #include "controllers/admin_controller.h"
 
-#include "db/mysql_pool.h"
+#include "dao/user_dao.h"
+#include "dao/post_dao.h"
+#include "dao/comment_dao.h"
 #include "services/auth_service.h"
 #include "utils/logger.h"
-#include "utils/mysqlx_helper.h"
 #include "utils/response.h"
+#include "utils/sanitize.h"
 
 #include <boost/json.hpp>
 
@@ -23,30 +25,13 @@ static http::response<http::string_body> handle_admin_stats(
         return res;
     }
 
-    auto sess = MysqlPool::instance().acquire();
-    if (!sess) {
-        http::response<http::string_body> res{http::status::internal_server_error, req.version()};
-        res.body() = response::error(500, "Database connection failed");
-        res.prepare_payload();
-        return res;
-    }
-
     try {
         // @cuiruoni+分别统计各表记录数，published/draft为文章状态子统计
-        auto total_users_result = sess->sql("SELECT COUNT(*) FROM users").execute();
-        int64_t total_users = static_cast<int64_t>(total_users_result.fetchOne()[0]);
-
-        auto total_posts_result = sess->sql("SELECT COUNT(*) FROM posts").execute();
-        int64_t total_posts = static_cast<int64_t>(total_posts_result.fetchOne()[0]);
-
-        auto total_comments_result = sess->sql("SELECT COUNT(*) FROM comments").execute();
-        int64_t total_comments = static_cast<int64_t>(total_comments_result.fetchOne()[0]);
-
-        auto published_posts_result = sess->sql("SELECT COUNT(*) FROM posts WHERE status = 'published'").execute();
-        int64_t published_posts = static_cast<int64_t>(published_posts_result.fetchOne()[0]);
-
-        auto draft_posts_result = sess->sql("SELECT COUNT(*) FROM posts WHERE status = 'draft'").execute();
-        int64_t draft_posts = static_cast<int64_t>(draft_posts_result.fetchOne()[0]);
+        int64_t total_users = user_dao::count_all();
+        int64_t total_posts = post_dao::count_all();
+        int64_t total_comments = comment_dao::count_all();
+        int64_t published_posts = post_dao::count_by_status("published");
+        int64_t draft_posts = post_dao::count_by_status("draft");
 
             json::object data;
         data["total_users"] = total_users;
@@ -83,40 +68,14 @@ static http::response<http::string_body> handle_admin_list_users(
     int page = 1, page_size = 10;
     // @cuiruoni+从查询参数中提取分页条件
     auto it = params.query.find("page");
-    if (it != params.query.end() && !it->second.empty()) page = std::stoi(it->second);
+    if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second);
     it = params.query.find("page_size");
-    if (it != params.query.end() && !it->second.empty()) page_size = std::stoi(it->second);
-
-    auto sess = MysqlPool::instance().acquire();
-    if (!sess) {
-        http::response<http::string_body> res{http::status::internal_server_error, req.version()};
-        res.body() = response::error(500, "Database connection failed");
-        res.prepare_payload();
-        return res;
-    }
+    if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second);
 
     try {
-        // @cuiruoni+查询总数用于分页
-        auto count_result = sess->sql("SELECT COUNT(*) FROM users").execute();
-        int total = static_cast<int>(static_cast<int64_t>(count_result.fetchOne()[0]));
-
-        int offset = (page - 1) * page_size;
+        int total = 0;
         // @cuiruoni+只返回安全字段，排除password_hash和salt
-        auto result = sess->sql(
-            "SELECT id, username, email, role, created_at FROM users "
-            "ORDER BY created_at DESC LIMIT ? OFFSET ?")
-            .bind(page_size).bind(offset).execute();
-
-        json::array arr;
-        for (auto row : result) {
-            json::object obj;
-            obj["id"] = mysqlx_helper::to_json(row[0]);
-            obj["username"] = mysqlx_helper::to_string(row[1]);
-            obj["email"] = mysqlx_helper::is_null(row, 2) ? "" : mysqlx_helper::to_string(row[2]);
-            obj["role"] = mysqlx_helper::to_string(row[3]);
-            obj["created_at"] = mysqlx_helper::to_string(row[4]);
-            arr.push_back(obj);
-        }
+        json::array arr = user_dao::list_users(page, page_size, total);
 
             json::object data;
         data["users"] = arr;
@@ -157,7 +116,7 @@ static http::response<http::string_body> handle_admin_change_user_role(
         return res;
     }
 
-    int64_t target_id = std::stoll(it->second);
+    int64_t target_id = sanitize::safe_stoll(it->second);
 
     // @cuiruoni+管理员不能修改自己的角色，防止误操作导致失去管理员权限
     if (target_id == admin_id) {
@@ -179,24 +138,15 @@ static http::response<http::string_body> handle_admin_change_user_role(
             return res;
         }
 
-        auto sess = MysqlPool::instance().acquire();
-        if (!sess) {
-            http::response<http::string_body> res{http::status::internal_server_error, req.version()};
-            res.body() = response::error(500, "Database connection failed");
-            res.prepare_payload();
-            return res;
-        }
-
         // @cuiruoni+先检查目标用户是否存在
-        auto check = sess->sql("SELECT id FROM users WHERE id = ?").bind(target_id).execute();
-        if (check.count() == 0) {
+        if (!user_dao::exists_by_id(target_id)) {
                 http::response<http::string_body> res{http::status::not_found, req.version()};
             res.body() = response::error(404, "User not found");
             res.prepare_payload();
             return res;
         }
 
-        sess->sql("UPDATE users SET role = ? WHERE id = ?").bind(new_role).bind(target_id).execute();
+        user_dao::update_role(target_id, new_role);
             http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(std::string("User role updated"));
         res.prepare_payload();
@@ -230,7 +180,7 @@ static http::response<http::string_body> handle_admin_delete_user(
         return res;
     }
 
-    int64_t target_id = std::stoll(it->second);
+    int64_t target_id = sanitize::safe_stoll(it->second);
 
     // @cuiruoni+管理员不能删除自己，防止误操作
     if (target_id == admin_id) {
@@ -240,18 +190,9 @@ static http::response<http::string_body> handle_admin_delete_user(
         return res;
     }
 
-    auto sess = MysqlPool::instance().acquire();
-    if (!sess) {
-        http::response<http::string_body> res{http::status::internal_server_error, req.version()};
-        res.body() = response::error(500, "Database connection failed");
-        res.prepare_payload();
-        return res;
-    }
-
     try {
         // @cuiruoni+先检查目标用户是否存在
-        auto check = sess->sql("SELECT id FROM users WHERE id = ?").bind(target_id).execute();
-        if (check.count() == 0) {
+        if (!user_dao::exists_by_id(target_id)) {
                 http::response<http::string_body> res{http::status::not_found, req.version()};
             res.body() = response::error(404, "User not found");
             res.prepare_payload();
@@ -259,7 +200,7 @@ static http::response<http::string_body> handle_admin_delete_user(
         }
 
         // @cuiruoni+删除用户，依赖数据库外键ON DELETE CASCADE级联删除posts和comments
-        sess->sql("DELETE FROM users WHERE id = ?").bind(target_id).execute();
+        user_dao::delete_by_id(target_id);
             http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(std::string("User deleted"));
         res.prepare_payload();
@@ -289,71 +230,16 @@ static http::response<http::string_body> handle_admin_list_posts(
     std::string status = "all";
     // @cuiruoni+从查询参数中提取分页和状态过滤条件
     auto it = params.query.find("page");
-    if (it != params.query.end() && !it->second.empty()) page = std::stoi(it->second);
+    if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second);
     it = params.query.find("page_size");
-    if (it != params.query.end() && !it->second.empty()) page_size = std::stoi(it->second);
+    if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second);
     it = params.query.find("status");
     if (it != params.query.end()) status = it->second;
 
-    auto sess = MysqlPool::instance().acquire();
-    if (!sess) {
-        http::response<http::string_body> res{http::status::internal_server_error, req.version()};
-        res.body() = response::error(500, "Database connection failed");
-        res.prepare_payload();
-        return res;
-    }
-
     try {
         int total = 0;
-        std::string count_sql = "SELECT COUNT(*) FROM posts";
-        std::string list_sql =
-            "SELECT p.id, p.title, p.status, p.view_count, p.created_at, p.updated_at, "
-            "u.id, u.username "
-            "FROM posts p LEFT JOIN users u ON p.user_id = u.id";
-
         // @cuiruoni+根据status参数决定是否添加WHERE条件
-        if (status != "all") {
-            count_sql += " WHERE status = ?";
-            list_sql += " WHERE p.status = ? ORDER BY p.created_at DESC LIMIT ? OFFSET ?";
-        } else {
-            list_sql += " ORDER BY p.created_at DESC LIMIT ? OFFSET ?";
-        }
-
-        // @cuiruoni+查询总数用于分页
-        if (status != "all") {
-            auto count_result = sess->sql(count_sql).bind(status).execute();
-            total = static_cast<int>(static_cast<int64_t>(count_result.fetchOne()[0]));
-        } else {
-            auto count_result = sess->sql(count_sql).execute();
-            total = static_cast<int>(static_cast<int64_t>(count_result.fetchOne()[0]));
-        }
-
-        int offset = (page - 1) * page_size;
-
-        // @cuiruoni+根据是否有status过滤条件，使用不同的绑定参数
-        mysqlx::SqlResult result;
-        if (status != "all") {
-            result = sess->sql(list_sql).bind(status).bind(page_size).bind(offset).execute();
-        } else {
-            result = sess->sql(list_sql).bind(page_size).bind(offset).execute();
-        }
-
-        json::array arr;
-        for (auto row : result) {
-            json::object obj;
-            obj["id"] = mysqlx_helper::to_json(row[0]);
-            obj["title"] = mysqlx_helper::to_string(row[1]);
-            obj["status"] = mysqlx_helper::to_string(row[2]);
-            obj["view_count"] = mysqlx_helper::to_json(row[3]);
-            obj["created_at"] = mysqlx_helper::to_string(row[4]);
-            obj["updated_at"] = mysqlx_helper::is_null(row, 5) ? "" : mysqlx_helper::to_string(row[5]);
-            // @cuiruoni+作者信息作为嵌套对象返回
-            json::object author;
-            author["id"] = mysqlx_helper::to_json(row[6]);
-            author["username"] = mysqlx_helper::to_string(row[7]);
-            obj["author"] = author;
-            arr.push_back(obj);
-        }
+        json::array arr = post_dao::admin_list_posts(page, page_size, status, total);
 
             json::object data;
         data["posts"] = arr;
@@ -394,20 +280,11 @@ static http::response<http::string_body> handle_admin_delete_post(
         return res;
     }
 
-    int64_t post_id = std::stoll(it->second);
-
-    auto sess = MysqlPool::instance().acquire();
-    if (!sess) {
-        http::response<http::string_body> res{http::status::internal_server_error, req.version()};
-        res.body() = response::error(500, "Database connection failed");
-        res.prepare_payload();
-        return res;
-    }
+    int64_t post_id = sanitize::safe_stoll(it->second);
 
     try {
         // @cuiruoni+先检查文章是否存在
-        auto check = sess->sql("SELECT id FROM posts WHERE id = ?").bind(post_id).execute();
-        if (check.count() == 0) {
+        if (!post_dao::exists_by_id(post_id)) {
                 http::response<http::string_body> res{http::status::not_found, req.version()};
             res.body() = response::error(404, "Post not found");
             res.prepare_payload();
@@ -415,7 +292,7 @@ static http::response<http::string_body> handle_admin_delete_post(
         }
 
         // @cuiruoni+管理员可直接删除任意文章，无需检查所有权
-        sess->sql("DELETE FROM posts WHERE id = ?").bind(post_id).execute();
+        post_dao::delete_by_id(post_id);
             http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(std::string("Post deleted"));
         res.prepare_payload();
@@ -444,50 +321,14 @@ static http::response<http::string_body> handle_admin_list_comments(
     int page = 1, page_size = 10;
     // @cuiruoni+从查询参数中提取分页条件
     auto it = params.query.find("page");
-    if (it != params.query.end() && !it->second.empty()) page = std::stoi(it->second);
+    if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second);
     it = params.query.find("page_size");
-    if (it != params.query.end() && !it->second.empty()) page_size = std::stoi(it->second);
-
-    auto sess = MysqlPool::instance().acquire();
-    if (!sess) {
-        http::response<http::string_body> res{http::status::internal_server_error, req.version()};
-        res.body() = response::error(500, "Database connection failed");
-        res.prepare_payload();
-        return res;
-    }
+    if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second);
 
     try {
-        // @cuiruoni+查询总数用于分页
-        auto count_result = sess->sql("SELECT COUNT(*) FROM comments").execute();
-        int total = static_cast<int>(static_cast<int64_t>(count_result.fetchOne()[0]));
-
-        int offset = (page - 1) * page_size;
+        int total = 0;
         // @cuiruoni+关联查询评论及其所属文章标题，方便管理员定位
-        auto result = sess->sql(
-            "SELECT c.id, c.post_id, c.author_name, c.author_email, c.content, "
-            "c.parent_id, c.created_at, p.title "
-            "FROM comments c LEFT JOIN posts p ON c.post_id = p.id "
-            "ORDER BY c.created_at DESC LIMIT ? OFFSET ?")
-            .bind(page_size).bind(offset).execute();
-
-        json::array arr;
-        for (auto row : result) {
-            json::object obj;
-            obj["id"] = mysqlx_helper::to_json(row[0]);
-            obj["post_id"] = mysqlx_helper::to_json(row[1]);
-            obj["author_name"] = mysqlx_helper::to_string(row[2]);
-            obj["author_email"] = mysqlx_helper::is_null(row, 3) ? "" : mysqlx_helper::to_string(row[3]);
-            obj["content"] = mysqlx_helper::to_string(row[4]);
-            // @cuiruoni+parent_id为null时返回JSON null，表示顶级评论
-            obj["parent_id"] = mysqlx_helper::is_null(row, 5) ? json::value{} : mysqlx_helper::to_json(row[5]);
-            obj["created_at"] = mysqlx_helper::to_string(row[6]);
-            // @cuiruoni+所属文章信息作为嵌套对象返回
-            json::object post_info;
-            post_info["id"] = mysqlx_helper::to_json(row[1]);
-            post_info["title"] = mysqlx_helper::is_null(row, 7) ? "" : mysqlx_helper::to_string(row[7]);
-            obj["post"] = post_info;
-            arr.push_back(obj);
-        }
+        json::array arr = comment_dao::admin_list_comments(page, page_size, total);
 
             json::object data;
         data["comments"] = arr;
@@ -528,27 +369,18 @@ static http::response<http::string_body> handle_admin_delete_comment(
         return res;
     }
 
-    int64_t comment_id = std::stoll(it->second);
-
-    auto sess = MysqlPool::instance().acquire();
-    if (!sess) {
-        http::response<http::string_body> res{http::status::internal_server_error, req.version()};
-        res.body() = response::error(500, "Database connection failed");
-        res.prepare_payload();
-        return res;
-    }
+    int64_t comment_id = sanitize::safe_stoll(it->second);
 
     try {
         // @cuiruoni+先检查评论是否存在
-        auto check = sess->sql("SELECT id FROM comments WHERE id = ?").bind(comment_id).execute();
-        if (check.count() == 0) {
+        if (!comment_dao::exists_by_id(comment_id)) {
                 http::response<http::string_body> res{http::status::not_found, req.version()};
             res.body() = response::error(404, "Comment not found");
             res.prepare_payload();
             return res;
         }
 
-        sess->sql("DELETE FROM comments WHERE id = ?").bind(comment_id).execute();
+        comment_dao::delete_by_id(comment_id);
             http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(std::string("Comment deleted"));
         res.prepare_payload();

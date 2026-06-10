@@ -82,11 +82,17 @@ const Login = () => {
 
           {/* Social login */}
           <div className="grid grid-cols-2 gap-4 mb-8">
-            <button className="btn-ghost-glass flex items-center justify-center gap-3 py-3 rounded-2xl text-sm font-bold">
+            <button
+              onClick={() => toast.info(`GitHub 登录功能即将上线`)}
+              className="btn-ghost-glass flex items-center justify-center gap-3 py-3 rounded-2xl text-sm font-bold"
+            >
               <Github size={18} />
               GitHub
             </button>
-            <button className="btn-ghost-glass flex items-center justify-center gap-3 py-3 rounded-2xl text-sm font-bold">
+            <button
+              onClick={() => toast.info(`Twitter 登录功能即将上线`)}
+              className="btn-ghost-glass flex items-center justify-center gap-3 py-3 rounded-2xl text-sm font-bold"
+            >
               <Twitter size={18} className="text-sky-400 fill-sky-400/10" />
               Twitter
             </button>

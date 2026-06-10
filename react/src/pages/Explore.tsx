@@ -40,30 +40,46 @@ const Explore = () => {
   const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
   const [apiPosts, setApiPosts] = useState<ApiPost[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const PAGE_SIZE = 20;
 
-  const fetchPosts = async () => {
+  const fetchPosts = async (pageNum: number = 1, append: boolean = false) => {
     setLoading(true);
-    const data = await postsApi.list(1, 20);
-    setApiPosts(data);
+    const data = await postsApi.list(pageNum, PAGE_SIZE);
+    if (append) {
+      setApiPosts((prev) => [...prev, ...data]);
+    } else {
+      setApiPosts(data);
+    }
+    setHasMore(data.length >= PAGE_SIZE);
     setLoading(false);
   };
 
   /* Fetch posts from API on mount */
   useEffect(() => {
-    fetchPosts();
+    fetchPosts(1);
   }, []);
+
+  const handleLoadMore = () => {
+    const nextPage = page + 1;
+    setPage(nextPage);
+    fetchPosts(nextPage, true);
+  };
 
   /* Search from API when user types */
   // @cuiruoni+搜索防抖：400ms延迟后发起搜索请求，避免每次按键都调用API
   useEffect(() => {
     const timer = setTimeout(async () => {
       if (!searchVal.trim()) {
-        fetchPosts();
+        setPage(1);
+        fetchPosts(1);
         return;
       }
       setLoading(true);
       const results = await searchApi.search(searchVal);
       setApiPosts(results);
+      setHasMore(false);
       setLoading(false);
     }, 400);
     return () => clearTimeout(timer);
@@ -245,9 +261,14 @@ const Explore = () => {
             </div>
           </div>
 
-          <div className={sorted.length > 0 ? `text-center mt-10` : `hidden`}>
-            <button className="btn-ghost-glass px-10 py-3.5 rounded-2xl text-sm font-medium text-foreground">
-              Load More
+          <div className={sorted.length > 0 && hasMore ? `text-center mt-10` : `hidden`}>
+            <button
+              onClick={handleLoadMore}
+              disabled={loading}
+              className="btn-ghost-glass px-10 py-3.5 rounded-2xl text-sm font-medium text-foreground"
+              style={{ opacity: loading ? 0.5 : 1 }}
+            >
+              {loading ? `加载中...` : `Load More`}
             </button>
           </div>
         </div>

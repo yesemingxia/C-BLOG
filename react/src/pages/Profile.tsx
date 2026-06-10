@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   FileText, Eye, Calendar, MapPin, Link2,
-  Twitter, Star, Heart
+  Twitter, Star, Heart, Edit2
 } from "lucide-react";
 import BlogCard, { BlogPost } from "../components/BlogCard";
 import GlassBackground from "../components/GlassBackground";
@@ -20,13 +20,13 @@ const Profile = () => {
   const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
   const [profile, setProfile] = useState<(UserProfile & { posts: BlogPost[] }) | null>(null);
   const [loading, setLoading] = useState(true);
-  const isOwn = isLoggedIn;
+  const isOwn = isLoggedIn && (!routeUsername || routeUsername === (JSON.parse(localStorage.getItem(`blog_user`) || `{}`) as { username?: string }).username);
 
   // @cuiruoni+从后端API加载用户公开资料
   useEffect(() => {
     const loadProfile = async () => {
       setLoading(true);
-      const uname = routeUsername || localStorage.getItem(`blog_username`) || ``;
+      const uname = routeUsername || (JSON.parse(localStorage.getItem(`blog_user`) || `{}`) as { username?: string }).username || ``;
       if (!uname) { setLoading(false); return; }
       const data = await profileApi.getPublicProfile(uname);
       if (data) {

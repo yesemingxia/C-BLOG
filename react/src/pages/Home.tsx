@@ -8,11 +8,23 @@ import {
   Smartphone, Cloud, Cpu, FileCode, Container, GitBranch
 } from "lucide-react";
 import MainLayout from "../components/MainLayout";
+import { postsApi, contactApi, type ApiPost } from "../lib/api";
 
 /* ─────────────────────────────────────────────
-   Data: Projects (connected to backend /api/posts)
+   Data: Fallback projects when API is unavailable
    ───────────────────────────────────────────── */
-const projects = [
+interface Project {
+  id: number;
+  title: string;
+  description: string;
+  image: string;
+  tags: string[];
+  stars: number;
+  forks: number;
+  link: string;
+}
+
+const fallbackProjects: Project[] = [
   {
     id: 1,
     title: "Luminary Blog Platform",
@@ -153,11 +165,13 @@ const Section = ({ children, className = "", id }: { children: React.ReactNode; 
 /* ─────────────────────────────────────────────
    Contact form with real-time validation
    ───────────────────────────────────────────── */
-// @cuiruoni+联系表单组件：实时字段校验，失焦触发验证，提交成功后显示反馈并重置
+// @cuiruoni+联系表单组件：实时字段校验，失焦触发验证，提交后调用后端API，失败显示错误状态
 const ContactForm = () => {
   const [form, setForm] = useState({ name: "", email: "", message: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [sent, setSent] = useState(false);
+  const [sendError, setSendError] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const validate = (field: string, value: string) => {
     let err = "";
@@ -173,16 +187,25 @@ const ContactForm = () => {
     if (errors[field]) validate(field, value);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSendError(false);
     const nameOk = validate("name", form.name);
     const emailOk = validate("email", form.email);
     const msgOk = validate("message", form.message);
     if (nameOk && emailOk && msgOk) {
-      setSent(true);
-      setTimeout(() => setSent(false), 4000);
-      setForm({ name: "", email: "", message: "" });
-      setErrors({});
+      setSubmitting(true);
+      const success = await contactApi.send(form.name, form.email, form.message);
+      setSubmitting(false);
+      if (success) {
+        setSent(true);
+        setTimeout(() => setSent(false), 4000);
+        setForm({ name: "", email: "", message: "" });
+        setErrors({});
+      } else {
+        setSendError(true);
+        setTimeout(() => setSendError(false), 4000);
+      }
     }
   };
 
@@ -238,11 +261,20 @@ const ContactForm = () => {
 
       <button
         type="submit"
-        className="btn-primary-glass w-full py-3.5 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2"
+        disabled={submitting}
+        className="btn-primary-glass w-full py-3.5 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 disabled:opacity-60"
       >
-        {sent ? (
+        {sendError ? (
+          <>
+            <AlertCircle size={18} /> Failed to Send
+          </>
+        ) : sent ? (
           <>
             <CheckCircle size={18} /> Message Sent!
+          </>
+        ) : submitting ? (
+          <>
+            <Send size={16} className="animate-pulse" /> Sending...
           </>
         ) : (
           <>
@@ -262,6 +294,27 @@ const Home = () => {
   const navigate = useNavigate();
   // @cuiruoni+打字机效果循环展示多个身份标签
   const typedText = useTypingEffect(["Full-Stack Developer", "UI Designer", "Open Source Lover", "Creative Coder"], 90, 50, 2200);
+
+  // @cuiruoni+从后端API获取已发布文章作为项目展示，失败时降级到硬编码数据
+  const [projects, setProjects] = useState<Project[]>(fallbackProjects);
+
+  useEffect(() => {
+    postsApi.list(1, 10).then((posts) => {
+      if (posts.length > 0) {
+        const mapped: Project[] = posts.map((post: ApiPost) => ({
+          id: post.id,
+          title: post.title,
+          description: post.excerpt ?? post.summary ?? "",
+          image: post.cover ?? `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=${encodeURIComponent(post.title)}%20project%20dark%20ui&image_size=landscape_16_9`,
+          tags: post.tags ?? [],
+          stars: post.likes ?? 0,
+          forks: post.comments_count ?? 0,
+          link: `/post?id=${post.id}`,
+        }));
+        setProjects(mapped);
+      }
+    });
+  }, []);
 
   return (
     <MainLayout>

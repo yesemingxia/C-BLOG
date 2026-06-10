@@ -4,18 +4,26 @@ import { Search, TrendingUp, Clock, X, Hash, FileText, User } from "lucide-react
 import BlogCard, { BlogPost } from "../components/BlogCard";
 import GlassBackground from "../components/GlassBackground";
 import Navbar from "../components/Navbar";
-
-const allPosts: BlogPost[] = [
-  { id: 1, title: `探索现代前端架构的无限可能`, excerpt: `深入了解 React 19 的新特性，探讨构建高性能前端架构的方法。`, cover: `https://picsum.photos/seed/blog1/600/400`, author: `Nova Chen`, authorAvatar: `NC`, date: `2025-06-15`, readTime: 8, likes: 248, comments: 32, views: 3420, tags: [`React`, `架构`] },
-  { id: 2, title: `CSS 液态玻璃效果完全指南`, excerpt: `全面掌握 Glassmorphism 设计语言，打造令人惊艳的 UI 界面效果。`, cover: `https://picsum.photos/seed/blog2/600/400`, author: `Luna Park`, authorAvatar: `LP`, date: `2025-06-12`, readTime: 12, likes: 512, comments: 67, views: 8930, tags: [`CSS`, `设计`] },
-  { id: 3, title: `TypeScript 类型体操深度解析`, excerpt: `条件类型、映射类型，掌握高级 TypeScript 特性让代码更优雅。`, cover: `https://picsum.photos/seed/blog3/600/400`, author: `Kai Zhao`, authorAvatar: `KZ`, date: `2025-06-10`, readTime: 15, likes: 189, comments: 28, views: 4210, tags: [`TypeScript`] },
-  { id: 4, title: `AI 辅助编程的未来展望`, excerpt: `大模型如何改变软件开发模式的深度分析与实践思考。`, cover: `https://picsum.photos/seed/blog4/600/400`, author: `Mia Liu`, authorAvatar: `ML`, date: `2025-06-08`, readTime: 10, likes: 673, comments: 94, views: 12500, tags: [`AI`] },
-  { id: 5, title: `Tailwind CSS 最佳实践总结`, excerpt: `深入探讨 Tailwind 的工程化实践，提升团队协作效率。`, cover: `https://picsum.photos/seed/blog5/600/400`, author: `Sam Jin`, authorAvatar: `SJ`, date: `2025-06-05`, readTime: 7, likes: 345, comments: 41, views: 6700, tags: [`CSS`, `前端`] },
-  { id: 6, title: `从零搭建设计系统完整指南`, excerpt: `如何建立一套统一、可扩展的设计系统，提升产品一致性。`, cover: `https://picsum.photos/seed/blog6/600/400`, author: `Zoe Wang`, authorAvatar: `ZW`, date: `2025-06-01`, readTime: 20, likes: 892, comments: 113, views: 18400, tags: [`设计`] },
-];
+import { searchApi, tagsApi, ApiPost, ApiTag } from "../lib/api";
 
 const hotSearches = [`React 19`, `Glassmorphism`, `TypeScript 5`, `AI 编程`, `设计系统`, `Tailwind CSS`, `前端架构`];
 const hotTags = [`React`, `CSS`, `TypeScript`, `设计`, `AI`, `架构`, `前端`, `工程化`];
+
+// @cuiruoni+将后端ApiPost映射为BlogCard所需的BlogPost格式
+const mapApiPostToBlogPost = (p: ApiPost): BlogPost => ({
+  id: p.id,
+  title: p.title,
+  excerpt: p.excerpt ?? p.summary ?? ``,
+  cover: p.cover ?? `https://picsum.photos/seed/post${p.id}/600/400`,
+  author: p.author ?? `匿名`,
+  authorAvatar: p.author ? p.author.split(` `).map((w: string) => w[0]).join(``).slice(0, 2).toUpperCase() : `??`,
+  date: p.created_at ?? ``,
+  readTime: Math.max(1, Math.round((p.content_md ?? p.content ?? ``).length / 300) || 5),
+  likes: p.likes ?? 0,
+  comments: p.comments_count ?? 0,
+  views: p.views ?? 0,
+  tags: p.tags ?? [],
+});
 
 // @cuiruoni+搜索页组件：热门搜索推荐+历史记录+文章/标签/作者三维度搜索结果
 const SearchPage = () => {
@@ -28,24 +36,57 @@ const SearchPage = () => {
   const [activeTab, setActiveTab] = useState<`posts` | `tags` | `authors`>(`posts`);
   const [hasSearched, setHasSearched] = useState(false);
   const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
+  const [apiTags, setApiTags] = useState<string[]>(hotTags);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // @cuiruoni+从后端加载标签列表
+  useEffect(() => {
+    tagsApi.list().then((res) => {
+      if (res?.length) setApiTags(res.map((t: ApiTag) => t.name));
+    }).catch(() => {});
+  }, []);
+
+  // @cuiruoni+从搜索结果中提取去重的作者列表
+  const matchedAuthors = (() => {
+    const authorMap = new Map<string, { name: string; count: number }>();
+    for (const r of results) {
+      if (!r.author) continue;
+      const existing = authorMap.get(r.author);
+      if (existing) existing.count++;
+      else authorMap.set(r.author, { name: r.author, count: 1 });
+    }
+    return Array.from(authorMap.values())
+      .filter((a) => !query || a.name.toLowerCase().includes(query.toLowerCase()))
+      .sort((a, b) => b.count - a.count);
+  })();
+
+  // @cuiruoni+从搜索结果中提取匹配的标签
+  const matchedTags = (() => {
+    const tagSet = new Set<string>();
+    for (const r of results) {
+      if (r.tags) r.tags.forEach((t) => tagSet.add(t));
+    }
+    const allMatched = query
+      ? [...tagSet].filter((t) => t.toLowerCase().includes(query.toLowerCase()))
+      : [...tagSet];
+    // @cuiruoni+如果搜索结果中没有标签，则从后端标签列表中匹配
+    if (allMatched.length === 0 && query) {
+      return apiTags.filter((t) => t.toLowerCase().includes(query.toLowerCase()));
+    }
+    return allMatched.length > 0 ? allMatched : apiTags;
+  })();
 
   // @cuiruoni+页面加载后自动聚焦搜索框，提升用户体验
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 300);
   }, []);
 
-  // @cuiruoni+本地搜索实现：匹配标题、标签、作者名，同时更新搜索历史
-  const doSearch = (q: string) => {
+  // @cuiruoni+调用后端searchApi搜索，同时更新搜索历史
+  const doSearch = async (q: string) => {
     if (!q.trim()) return;
     setHasSearched(true);
-    const matched = allPosts.filter(
-      (p) =>
-        p.title.toLowerCase().includes(q.toLowerCase()) ||
-        p.tags.some((t) => t.toLowerCase().includes(q.toLowerCase())) ||
-        p.author.toLowerCase().includes(q.toLowerCase())
-    );
-    setResults(matched);
+    const apiResults = await searchApi.search(q);
+    setResults(apiResults.map(mapApiPostToBlogPost));
     if (!recentSearches.includes(q)) {
       setRecentSearches((prev) => [q, ...prev].slice(0, 6));
     }
@@ -246,7 +287,7 @@ const SearchPage = () => {
             {/* Tags results */}
             <div className={activeTab === `tags` ? `` : `hidden`}>
               <div className="flex flex-wrap gap-3">
-                {hotTags.filter((t) => t.toLowerCase().includes(query.toLowerCase())).map((tag) => (
+                {matchedTags.map((tag) => (
                   <div
                     key={tag}
                     className="glass-card px-5 py-4 flex items-center gap-3 cursor-pointer hover:bg-white/5 transition-all"
@@ -256,51 +297,55 @@ const SearchPage = () => {
                     <div>
                       <div className="text-sm font-semibold text-foreground">{tag}</div>
                       <div className="text-xs" style={{ color: `rgba(232,234,246,0.4)` }}>
-                        {Math.floor(Math.random() * 50 + 10)} 篇文章
+                        标签
                       </div>
                     </div>
                   </div>
                 ))}
+                {matchedTags.length === 0 && (
+                  <div className="text-center py-16 w-full">
+                    <div className="text-4xl mb-4">🏷️</div>
+                    <div className="text-foreground font-medium mb-2">没有找到相关标签</div>
+                    <div className="text-sm" style={{ color: `rgba(232,234,246,0.4)` }}>换个关键词试试吧</div>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Authors results */}
             <div className={activeTab === `authors` ? `` : `hidden`}>
               <div className="flex flex-col gap-3">
-                {[
-                  { name: `Nova Chen`, handle: `@novachen`, avatar: `NC`, followers: `3,420`, posts: 24, bio: `前端工程师 / UI设计爱好者` },
-                  { name: `Luna Park`, handle: `@lunapark`, avatar: `LP`, followers: `1,892`, posts: 15, bio: `全栈开发者 / 开源爱好者` },
-                ].filter((u) =>
-                  u.name.toLowerCase().includes(query.toLowerCase()) ||
-                  u.handle.toLowerCase().includes(query.toLowerCase())
-                ).map((user) => (
+                {matchedAuthors.map((author) => (
                   <div
-                    key={user.handle}
+                    key={author.name}
                     className="glass-card p-4 flex items-center gap-4 cursor-pointer hover:bg-white/5 transition-all"
-                    onClick={() => navigate(`/profile`)}
+                    onClick={() => navigate(`/profile/${encodeURIComponent(author.name)}`)}
                   >
                     <div
                       className="w-12 h-12 rounded-xl flex items-center justify-center font-bold text-sm flex-shrink-0"
                       style={{ background: `linear-gradient(135deg, #7c6aff, #38bdf8)` }}
                     >
-                      {user.avatar}
+                      {author.name.slice(0, 2).toUpperCase()}
                     </div>
                     <div className="flex-1">
-                      <div className="font-semibold text-sm text-foreground">{user.name}</div>
-                      <div className="text-xs" style={{ color: `rgba(232,234,246,0.45)` }}>{user.handle} · {user.bio}</div>
-                    </div>
-                    <div className="text-right text-xs" style={{ color: `rgba(232,234,246,0.4)` }}>
-                      <div className="font-semibold text-foreground">{user.followers}</div>
-                      <div>粉丝</div>
+                      <div className="font-semibold text-sm text-foreground">{author.name}</div>
+                      <div className="text-xs" style={{ color: `rgba(232,234,246,0.45)` }}>{author.count} 篇文章</div>
                     </div>
                     <button
-                      className="px-4 py-2 rounded-xl text-xs font-medium ml-4"
+                      className="px-4 py-2 rounded-xl text-xs font-medium"
                       style={{ background: `rgba(124,106,255,0.12)`, color: `#a78bfa`, border: `1px solid rgba(124,106,255,0.2)` }}
                     >
-                      关注
+                      查看
                     </button>
                   </div>
                 ))}
+                {matchedAuthors.length === 0 && (
+                  <div className="text-center py-16">
+                    <div className="text-4xl mb-4">👤</div>
+                    <div className="text-foreground font-medium mb-2">没有找到相关作者</div>
+                    <div className="text-sm" style={{ color: `rgba(232,234,246,0.4)` }}>换个关键词试试吧</div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

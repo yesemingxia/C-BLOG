@@ -491,6 +491,80 @@ export const profileApi = {
   },
 };
 
+/* ═════════════════════════════════════════════
+   Contact API — /api/contact
+   ═════════════════════════════════════════════ */
+export const contactApi = {
+  /** POST /api/contact */
+  send: async (name: string, email: string, message: string): Promise<boolean> => {
+    try {
+      await request("/contact", {
+        method: "POST",
+        body: JSON.stringify({ name, email, message }),
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+};
+
+/* ═════════════════════════════════════════════
+   Notifications API — /api/notifications
+   ═════════════════════════════════════════════ */
+
+export interface ApiNotification {
+  id: number;
+  type: string;
+  actor_name: string;
+  content: string;
+  post_title?: string;
+  is_read: boolean;
+  created_at: string;
+}
+
+export const notificationsApi = {
+  /** GET /api/notifications */
+  list: async (): Promise<ApiNotification[]> => {
+    try {
+      const res = await request<ApiResponse<ApiNotification[]>>("/notifications", { headers: authHeaders() });
+      return Array.isArray(res.data) ? res.data : [];
+    } catch {
+      return [];
+    }
+  },
+
+  /** PUT /api/notifications/:id/read */
+  markRead: async (id: number): Promise<boolean> => {
+    try {
+      await request(`/notifications/${id}/read`, { method: "PUT", headers: authHeaders() });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  /** PUT /api/notifications/read-all */
+  markAllRead: async (): Promise<boolean> => {
+    try {
+      await request("/notifications/read-all", { method: "PUT", headers: authHeaders() });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  /** DELETE /api/notifications/:id */
+  delete: async (id: number): Promise<boolean> => {
+    try {
+      await request(`/notifications/${id}`, { method: "DELETE", headers: authHeaders() });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+};
+
 /* ── Utility: check if backend is reachable ── */
 // @cuiruoni+后端健康检查：3秒超时探测，用于判断是否需要走mock降级
 export async function checkBackendHealth(): Promise<boolean> {

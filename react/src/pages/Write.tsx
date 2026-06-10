@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Bold, Italic, Code2, List, ListOrdered, Quote,
   Link2, Image, Eye, Edit3, Save, Upload,
@@ -28,13 +28,15 @@ const DEFAULT_TAGS = [`React`, `TypeScript`, `CSS`, `设计`, `前端`, `后端`
 // @cuiruoni+写作页组件：Markdown编辑器+分屏预览+发布面板，支持工具栏插入、标签选择、草稿保存
 const Write = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const editId = searchParams.get('edit') ? Number(searchParams.get('edit')) : null;
   const [allTags, setAllTags] = useState<string[]>(DEFAULT_TAGS);
 
   useEffect(() => {
     // @cuiruoni+从/api/tags获取标签列表
-    tagsApi.list().then((res) => {
-      if (res?.data) {
-        const tagNames = res.data.map((t: { id?: number; name: string }) => t.name);
+    tagsApi.list().then((tags) => {
+      if (tags?.length) {
+        const tagNames = tags.map((t) => t.name);
         if (tagNames.length > 0) setAllTags(tagNames);
       }
     }).catch(() => {
@@ -53,8 +55,26 @@ const Write = () => {
   const [coverUrl, setCoverUrl] = useState(``);
   const [summary, setSummary] = useState(``);
   const [saving, setSaving] = useState(false);
+  const [visibility, setVisibility] = useState(`public`);
   const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // @cuiruoni+编辑模式：加载已有文章数据
+  useEffect(() => {
+    if (!editId) return;
+    postsApi.get(editId).then((post) => {
+      if (post) {
+        setTitle(post.title || ``);
+        setContent(post.content_md || ``);
+        setSelectedTags(post.tags || []);
+        setSummary(post.summary || ``);
+        setVisibility(post.status === `draft` ? `draft` : (post as any).visibility || `public`);
+        if (post.cover) setCoverUrl(post.cover);
+      }
+    }).catch(() => {
+      toast.error(`加载文章失败`);
+    });
+  }, [editId]);
 
   // @cuiruoni+字数统计和阅读时间估算（按500字/分钟计算）
   const wordCount = content.replace(/\s+/g, ``).length;
@@ -108,13 +128,19 @@ const Write = () => {
 
     setSaving(true);
     try {
-      return await postsApi.create({
+      const data = {
         title: title.trim(),
         content_md: content,
         summary: summary.trim(),
         status,
         tags: selectedTags,
-      });
+        visibility,
+        cover: coverUrl || undefined,
+      };
+      if (editId) {
+        return await postsApi.update(editId, data);
+      }
+      return await postsApi.create(data);
     } finally {
       setSaving(false);
     }
@@ -134,7 +160,7 @@ const Write = () => {
       toast.error(`发布失败，请稍后重试`);
       return;
     }
-    toast.success(`文章发布成功！`);
+    toast.success(editId ? `文章更新成功！` : `文章发布成功！`);
     setTimeout(() => navigate(`/post?id=${post.id}`), 1200);
   };
 
@@ -247,7 +273,7 @@ const Write = () => {
               className="btn-primary-glass flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold"
             >
               <Upload size={14} />
-              发布文章
+              {editId ? `更新文章` : `发布文章`}
             </button>
           </div>
         </div>
@@ -335,7 +361,7 @@ const Write = () => {
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold text-foreground">发布文章</h3>
+            <h3 className="text-lg font-bold text-foreground">{editId ? `编辑文章` : `发布文章`}</h3>
             <button onClick={() => setShowPublishPanel(false)}>
               <X size={18} style={{ color: `rgba(232,234,246,0.5)` }} />
             </button>
@@ -432,6 +458,8 @@ const Write = () => {
             <label className="text-sm font-medium text-foreground mb-2 block">可见性</label>
             <div className="relative">
               <select
+                value={visibility}
+                onChange={(e) => setVisibility(e.target.value)}
                 className="glass-input w-full px-4 py-3 rounded-xl text-sm appearance-none"
                 style={{ color: `rgba(232,234,246,0.8)`, background: `transparent` }}
               >
@@ -458,7 +486,7 @@ const Write = () => {
               className="btn-primary-glass flex-1 py-3 rounded-xl text-sm font-semibold"
               style={{ opacity: saving ? 0.65 : 1 }}
             >
-              {saving ? "发布中..." : "立即发布"}
+              {saving ? "发布中..." : editId ? "更新文章" : "立即发布"}
             </button>
           </div>
         </div>

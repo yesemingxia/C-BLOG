@@ -44,7 +44,7 @@ void Database::init_tables() {
             "  view_count INT DEFAULT 0,"
             "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
             "  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
-            "  FOREIGN KEY (user_id) REFERENCES users(id)"
+            "  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
             ")"
         ).execute();
 
@@ -62,8 +62,8 @@ void Database::init_tables() {
             "  post_id BIGINT NOT NULL,"
             "  tag_id INT NOT NULL,"
             "  PRIMARY KEY (post_id, tag_id),"
-            "  FOREIGN KEY (post_id) REFERENCES posts(id),"
-            "  FOREIGN KEY (tag_id) REFERENCES tags(id)"
+            "  FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,"
+            "  FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE"
             ")"
         ).execute();
 
@@ -77,10 +77,45 @@ void Database::init_tables() {
             "  content TEXT NOT NULL,"
             "  parent_id BIGINT,"
             "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
-            "  FOREIGN KEY (post_id) REFERENCES posts(id),"
-            "  FOREIGN KEY (parent_id) REFERENCES comments(id)"
+            "  FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,"
+            "  FOREIGN KEY (parent_id) REFERENCES comments(id) ON DELETE CASCADE"
             ")"
         ).execute();
+
+        // @cuiruoni+通知表：存储用户通知，支持like/comment/follow/system/mention类型
+        sess->sql(
+            "CREATE TABLE IF NOT EXISTS notifications ("
+            "  id BIGINT PRIMARY KEY AUTO_INCREMENT,"
+            "  user_id BIGINT NOT NULL,"
+            "  type ENUM('like','comment','follow','system','mention') NOT NULL,"
+            "  actor_name VARCHAR(50),"
+            "  content VARCHAR(500) NOT NULL,"
+            "  post_title VARCHAR(200),"
+            "  is_read TINYINT(1) DEFAULT 0,"
+            "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+            "  INDEX idx_notifications_user_id(user_id),"
+            "  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+            ")"
+        ).execute();
+
+        // @cuiruoni+联系消息表：存储用户通过联系表单发送的消息
+        sess->sql(
+            "CREATE TABLE IF NOT EXISTS contact_messages ("
+            "  id BIGINT PRIMARY KEY AUTO_INCREMENT,"
+            "  name VARCHAR(100) NOT NULL,"
+            "  email VARCHAR(100) NOT NULL,"
+            "  message TEXT NOT NULL,"
+            "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+            ")"
+        ).execute();
+
+        // @cuiruoni+创建全文索引，搜索服务依赖此索引，IF NOT EXISTS保证幂等
+        try {
+            sess->sql("CREATE FULLTEXT INDEX IF NOT EXISTS ft_posts_search ON posts(title, content_md)").execute();
+            spdlog::info("Fulltext index ensured on posts(title, content_md)");
+        } catch (const std::exception& e) {
+            spdlog::debug("Fulltext index may already exist: {}", e.what());
+        }
 
         // @cuiruoni+数据库迁移：为已有users表添加新字段（CREATE IF NOT EXISTS不会添加新列）
         // @cuiruoni+使用存储过程安全添加列，列已存在时跳过

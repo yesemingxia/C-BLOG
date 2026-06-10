@@ -1,9 +1,8 @@
 #include "controllers/comment_controller.h"
 
-#include "db/mysql_pool.h"
+#include "dao/comment_dao.h"
 #include "services/auth_service.h"
 #include "utils/logger.h"
-#include "utils/mysqlx_helper.h"
 #include "utils/response.h"
 #include "utils/sanitize.h"
 
@@ -23,34 +22,10 @@ static http::response<http::string_body> handle_list_comments(
         return res;
     }
 
-    int64_t post_id = std::stoll(it->second);
-    auto sess = MysqlPool::instance().acquire();
-    if (!sess) {
-        http::response<http::string_body> res{http::status::internal_server_error, req.version()};
-        res.body() = response::error(500, "Database connection failed");
-        res.prepare_payload();
-        return res;
-    }
+    int64_t post_id = sanitize::safe_stoll(it->second);
 
     try {
-        auto result = sess->sql(
-            "SELECT id, post_id, author_name, author_email, content, parent_id, created_at "
-            "FROM comments WHERE post_id = ? ORDER BY created_at ASC")
-            .bind(post_id).execute();
-
-        json::array arr;
-        for (auto row : result) {
-            json::object obj;
-            obj["id"] = mysqlx_helper::to_json(row[0]);
-            obj["post_id"] = mysqlx_helper::to_json(row[1]);
-            obj["author_name"] = mysqlx_helper::to_string(row[2]);
-            obj["author_email"] = mysqlx_helper::is_null(row, 3) ? "" : mysqlx_helper::to_string(row[3]);
-            obj["content"] = mysqlx_helper::to_string(row[4]);
-            // @cuiruoni+parent_id为null时返回JSON null，前端据此区分顶级评论和回复
-            obj["parent_id"] = mysqlx_helper::is_null(row, 5) ? json::value{} : mysqlx_helper::to_json(row[5]);
-            obj["created_at"] = mysqlx_helper::to_string(row[6]);
-            arr.push_back(obj);
-        }
+        json::array arr = comment_dao::list_by_post_id(post_id);
 
         http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(json::object{{"comments", arr}});
@@ -86,7 +61,7 @@ static http::response<http::string_body> handle_create_comment(
         return res;
     }
 
-    int64_t post_id = std::stoll(it->second);
+    int64_t post_id = sanitize::safe_stoll(it->second);
 
     try {
         auto body = json::parse(req.body()).as_object();
@@ -98,34 +73,19 @@ static http::response<http::string_body> handle_create_comment(
         int64_t parent_id = body.contains("parent_id") && !body["parent_id"].is_null()
             ? body["parent_id"].as_int64() : 0;
 
-        auto sess = MysqlPool::instance().acquire();
-        if (!sess) {
-            http::response<http::string_body> res{http::status::internal_server_error, req.version()};
-            res.body() = response::error(500, "Database connection failed");
-            res.prepare_payload();
-            return res;
+        // @cuiruoni+根据是否有parent_id选择不同DAO方法，避免插入NULL到非必要字段
+        bool ok;
+        if (parent_id > 0) {
+            ok = comment_dao::insert_with_parent(post_id, author_name, author_email, content, parent_id);
+        } else {
+            ok = comment_dao::insert(post_id, author_name, author_email, content);
         }
 
-        // @cuiruoni+根据是否有parent_id选择不同SQL，避免插入NULL到非必要字段
-        if (parent_id > 0) {
-            sess->sql(
-                "INSERT INTO comments (post_id, author_name, author_email, content, parent_id) "
-                "VALUES (?, ?, ?, ?, ?)")
-                .bind(post_id)
-                .bind(author_name)
-                .bind(author_email)
-                .bind(content)
-                .bind(parent_id)
-                .execute();
-        } else {
-            sess->sql(
-                "INSERT INTO comments (post_id, author_name, author_email, content) "
-                "VALUES (?, ?, ?, ?)")
-                .bind(post_id)
-                .bind(author_name)
-                .bind(author_email)
-                .bind(content)
-                .execute();
+        if (!ok) {
+            http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+            res.body() = response::error(500, "Failed to create comment");
+            res.prepare_payload();
+            return res;
         }
 
         http::response<http::string_body> res{http::status::created, req.version()};

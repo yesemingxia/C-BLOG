@@ -19,9 +19,9 @@ static http::response<http::string_body> handle_list_posts(
 
     // @cuiruoni+从查询参数中提取分页和过滤条件
     auto it = params.query.find("page");
-    if (it != params.query.end() && !it->second.empty()) page = std::stoi(it->second);
+    if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second, 1);
     it = params.query.find("page_size");
-    if (it != params.query.end() && !it->second.empty()) page_size = std::stoi(it->second);
+    if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second, 10);
     it = params.query.find("status");
     if (it != params.query.end()) status = it->second;
 
@@ -50,7 +50,7 @@ static http::response<http::string_body> handle_get_post(
         return res;
     }
 
-    int64_t id = std::stoll(it->second);
+    int64_t id = sanitize::safe_stoll(it->second);
     auto post = post_service::get_post(id);
     if (post.id == 0) {
         http::response<http::string_body> res{http::status::not_found, req.version()};
@@ -89,9 +89,10 @@ static http::response<http::string_body> handle_create_post(
             return res;
         }
 
-        json::object data{{"id", id}};
+        // @cuiruoni+创建成功后查询完整文章数据返回给前端，包含渲染后的HTML和标签
+        auto created_post = post_service::get_post(id);
         http::response<http::string_body> res{http::status::created, req.version()};
-        res.body() = response::success("Post created", data);
+        res.body() = response::success("Post created", post_service::post_to_json(created_post));
         res.prepare_payload();
         return res;
     } catch (const std::exception& e) {
@@ -123,7 +124,7 @@ static http::response<http::string_body> handle_update_post(
         return res;
     }
 
-    int64_t id = std::stoll(it->second);
+    int64_t id = sanitize::safe_stoll(it->second);
     if (!post_service::can_modify_post(id, user_id, role)) {
         http::response<http::string_body> res{http::status::forbidden, req.version()};
         res.body() = response::error(403, "Forbidden");
@@ -174,7 +175,7 @@ static http::response<http::string_body> handle_delete_post(
         return res;
     }
 
-    int64_t id = std::stoll(it->second);
+    int64_t id = sanitize::safe_stoll(it->second);
     if (!post_service::can_modify_post(id, user_id, role)) {
         http::response<http::string_body> res{http::status::forbidden, req.version()};
         res.body() = response::error(403, "Forbidden");

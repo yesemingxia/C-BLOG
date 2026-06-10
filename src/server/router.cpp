@@ -68,7 +68,17 @@ bool Router::route_request(const http::request<http::string_body>& req,
     for (const auto& route : routes_) {
         if (route.method != method) continue;
         if (match_path(route.pattern, route.param_names, path, params)) {
-            res = route.handler(req, params);
+            auto handler_res = route.handler(req, params);
+            // @cuiruoni+合并handler响应到现有res_中，保留已设置的CORS等头信息
+            res.result(handler_res.result());
+            res.reason(handler_res.reason());
+            res.body() = std::move(handler_res.body());
+            for (auto it = handler_res.begin(); it != handler_res.end(); ++it) {
+                // @cuiruoni+只设置handler返回的头，不覆盖已有的CORS头
+                if (res.find(it->name_string()) == res.end()) {
+                    res.set(it->name_string(), it->value());
+                }
+            }
             return true;
         }
     }

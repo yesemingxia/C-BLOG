@@ -26,6 +26,38 @@ const Post = () => {
   const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
   const postId = Number(searchParams.get(`id`) ?? 1);
 
+  // @cuiruoni+从localStorage恢复点赞/收藏状态
+  useEffect(() => {
+    try {
+      const likedPosts = JSON.parse(localStorage.getItem(`blog_liked_posts`) || `[]`);
+      const bookmarkedPosts = JSON.parse(localStorage.getItem(`blog_bookmarked_posts`) || `[]`);
+      setLiked(likedPosts.includes(postId));
+      setBookmarked(bookmarkedPosts.includes(postId));
+    } catch { /* ignore */ }
+  }, [postId]);
+
+  const toggleLike = () => {
+    const next = !liked;
+    setLiked(next);
+    try {
+      const arr: number[] = JSON.parse(localStorage.getItem(`blog_liked_posts`) || `[]`);
+      if (next) { if (!arr.includes(postId)) arr.push(postId); }
+      else { const idx = arr.indexOf(postId); if (idx >= 0) arr.splice(idx, 1); }
+      localStorage.setItem(`blog_liked_posts`, JSON.stringify(arr));
+    } catch { /* ignore */ }
+  };
+
+  const toggleBookmark = () => {
+    const next = !bookmarked;
+    setBookmarked(next);
+    try {
+      const arr: number[] = JSON.parse(localStorage.getItem(`blog_bookmarked_posts`) || `[]`);
+      if (next) { if (!arr.includes(postId)) arr.push(postId); }
+      else { const idx = arr.indexOf(postId); if (idx >= 0) arr.splice(idx, 1); }
+      localStorage.setItem(`blog_bookmarked_posts`, JSON.stringify(arr));
+    } catch { /* ignore */ }
+  };
+
   // @cuiruoni+滚动监听计算阅读进度：被动监听优化性能，卸载时移除监听
   useEffect(() => {
     const handleScroll = () => {
@@ -81,6 +113,31 @@ const Post = () => {
 
   const articleTitle = post?.title ?? `加载中...`;
   const articleContent = post?.content_html ?? post?.content_md ?? ``;
+
+  // @cuiruoni+从content_html中提取标题生成目录，并给标题注入id用于锚点滚动
+  const toc = (() => {
+    if (!articleContent) return [];
+    const headings: { level: number; title: string; id: string }[] = [];
+    const regex = /<h([1-3])[^>]*>(.*?)<\/h\1>/gi;
+    let match;
+    while ((match = regex.exec(articleContent)) !== null) {
+      const level = parseInt(match[1], 10);
+      const title = match[2].replace(/<[^>]*>/g, "").trim();
+      const id = `heading-${headings.length}`;
+      headings.push({ level, title, id });
+    }
+    return headings;
+  })();
+
+  // @cuiruoni+将文章HTML中的h1-h3注入id属性，用于目录锚点跳转
+  const articleContentWithIds = (() => {
+    if (!articleContent || toc.length === 0) return articleContent;
+    let idx = 0;
+    return articleContent.replace(/<h([1-3])([^>]*)>(.*?)<\/h\1>/gi, (_match, level, attrs, content) => {
+      const id = `heading-${idx++}`;
+      return `<h${level}${attrs} id="${id}">${content}</h${level}>`;
+    });
+  })();
   const articleDate = post?.created_at?.slice(0, 10) ?? ``;
   const articleViews = post?.views ?? post?.view_count ?? 0;
   const articleTags = post?.tags?.length ? post.tags : [];
@@ -109,7 +166,7 @@ const Post = () => {
             <div className="hidden xl:flex flex-col items-center gap-4 flex-shrink-0 pt-10" style={{ width: 60 }}>
               <div className="sticky flex flex-col items-center gap-4" style={{ top: 100 }}>
                 <button
-                  onClick={() => setLiked(!liked)}
+                  onClick={() => toggleLike()}
                   className="flex flex-col items-center gap-1 group"
                 >
                   <div
@@ -135,7 +192,7 @@ const Post = () => {
                 </button>
 
                 <button
-                  onClick={() => setBookmarked(!bookmarked)}
+                  onClick={() => toggleBookmark()}
                   className="flex flex-col items-center gap-1"
                 >
                   <div
@@ -216,10 +273,10 @@ const Post = () => {
                       className="w-10 h-10 rounded-xl flex items-center justify-center font-bold"
                       style={{ background: `linear-gradient(135deg, #7c6aff, #f472b6)` }}
                     >
-                      NC
+                      {(post?.author || `匿名`).slice(0, 2).toUpperCase()}
                     </div>
                     <div>
-                      <div className="font-semibold text-sm text-foreground">Nova Chen</div>
+                      <div className="font-semibold text-sm text-foreground">{post?.author || `匿名用户`}</div>
                       <div className="text-xs" style={{ color: `rgba(232,234,246,0.4)` }}>{articleDate}</div>
                     </div>
                     <button
@@ -263,7 +320,7 @@ const Post = () => {
                   ) : articleContent ? (
                     <div
                       className="article-content"
-                      dangerouslySetInnerHTML={{ __html: articleContent }}
+                      dangerouslySetInnerHTML={{ __html: articleContentWithIds }}
                     />
                   ) : (
                     <div className="text-center py-12" style={{ color: `rgba(232,234,246,0.4)` }}>
@@ -276,7 +333,7 @@ const Post = () => {
               {/* Mobile actions */}
               <div className="xl:hidden flex items-center justify-around glass-card p-4 mb-8">
                 <button
-                  onClick={() => setLiked(!liked)}
+                  onClick={() => toggleLike()}
                   className="flex items-center gap-2 text-sm"
                   style={{ color: liked ? `#f472b6` : `rgba(232,234,246,0.6)` }}
                 >
@@ -287,7 +344,7 @@ const Post = () => {
                   <MessageCircle size={18} />{displayComments.length}
                 </button>
                 <button
-                  onClick={() => setBookmarked(!bookmarked)}
+                  onClick={() => toggleBookmark()}
                   className="flex items-center gap-2 text-sm"
                   style={{ color: bookmarked ? `#a78bfa` : `rgba(232,234,246,0.6)` }}
                 >
@@ -412,9 +469,13 @@ const Post = () => {
                     目录
                   </div>
                   <div className="flex flex-col gap-1">
-                    {toc.map((item, i) => (
+                    {toc.length > 0 ? toc.map((item, i) => (
                       <button
                         key={i}
+                        onClick={() => {
+                          const el = document.getElementById(item.id);
+                          if (el) el.scrollIntoView({ behavior: `smooth`, block: `start` });
+                        }}
                         className="text-left text-xs py-1.5 px-3 rounded-lg transition-colors hover:bg-white/5"
                         style={{
                           paddingLeft: item.level === 3 ? `1.5rem` : `0.75rem`,
@@ -424,7 +485,9 @@ const Post = () => {
                       >
                         {item.title}
                       </button>
-                    ))}
+                    )) : (
+                      <span className="text-xs" style={{ color: `rgba(232,234,246,0.35)` }}>暂无目录</span>
+                    )}
                   </div>
                 </div>
 

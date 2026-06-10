@@ -41,4 +41,16 @@ inline std::string truncate(const std::string& input, size_t max_len) {
     return input.substr(0, max_len);
 }
 
+// @cuiruoni+安全解析整数，解析失败返回默认值而非抛异常，防止非法URL参数导致500
+inline int safe_stoi(const std::string& str, int default_val = 0) {
+    try { return std::stoi(str); }
+    catch (...) { return default_val; }
+}
+
+// @cuiruoni+安全解析64位整数，解析失败返回默认值而非抛异常
+inline int64_t safe_stoll(const std::string& str, int64_t default_val = 0) {
+    try { return std::stoll(str); }
+    catch (...) { return default_val; }
+}
+
 }

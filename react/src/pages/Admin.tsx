@@ -399,6 +399,9 @@ const PostsTab = ({
   onDeletePost: (id: number) => void;
 }) => {
   const postsTotalPages = Math.ceil(postsTotal / 10);
+  const filteredPosts = postsSearch
+    ? posts.filter((p) => p.title.toLowerCase().includes(postsSearch.toLowerCase()) || (p.author ?? "").toLowerCase().includes(postsSearch.toLowerCase()))
+    : posts;
 
   return (
     <div className="space-y-4">
@@ -444,7 +447,7 @@ const PostsTab = ({
             </tr>
           </thead>
           <tbody>
-            {posts.map((post, i) => (
+            {filteredPosts.map((post, i) => (
               <motion.tr
                 key={post.id}
                 custom={i}
@@ -518,6 +521,9 @@ const CommentsTab = ({
   onDeleteComment: (id: number) => void;
 }) => {
   const commentsTotalPages = Math.ceil(commentsTotal / 10);
+  const filteredComments = commentsSearch
+    ? comments.filter((c) => c.content.toLowerCase().includes(commentsSearch.toLowerCase()) || c.author_name.toLowerCase().includes(commentsSearch.toLowerCase()))
+    : comments;
 
   return (
     <div className="space-y-4">
@@ -546,7 +552,7 @@ const CommentsTab = ({
             </tr>
           </thead>
           <tbody>
-            {comments.map((comment, i) => (
+            {filteredComments.map((comment, i) => (
               <motion.tr
                 key={comment.id}
                 custom={i}

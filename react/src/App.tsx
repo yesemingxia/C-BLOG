@@ -112,6 +112,7 @@ const App = () => (
             <Route path="/post" element={<Post />} />
             <Route path="/write" element={<Write />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/profile/:username" element={<Profile />} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/settings" element={<Settings />} />

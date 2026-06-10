@@ -70,8 +70,9 @@ void Session::handle_request() {
         else if (path == "/api/auth/register") endpoint = "register";
         else if (path.find("/api/posts/") != std::string::npos && path.find("/comments") != std::string::npos) endpoint = "comment";
 
-        std::string client_ip = req_.find("X-Forwarded-For") != req_.end()
-            ? std::string(req_["X-Forwarded-For"]) : "unknown";
+        // @cuiruoni+优先使用X-Real-IP（Nginx设置），避免X-Forwarded-For可被客户端伪造
+        std::string client_ip = req_.find("X-Real-IP") != req_.end()
+            ? std::string(req_["X-Real-IP"]) : "unknown";
         if (!rate_limiter::check(client_ip, endpoint)) {
             res_.result(http::status::too_many_requests);
             res_.set(http::field::content_type, "application/json");
@@ -83,6 +84,17 @@ void Session::handle_request() {
         }
 
         // @cuiruoni+路由分发：中间件链→路径匹配→handler执行
+        // @cuiruoni+OPTIONS预检请求直接返回200，CORS头已由cors_middleware设置
+        if (req_.method() == http::verb::options) {
+            res_.result(http::status::ok);
+            res_.set(http::field::content_type, "application/json");
+            res_.body() = "{}";
+            res_.keep_alive(keep_alive_);
+            res_.prepare_payload();
+            write_response();
+            return;
+        }
+
         router_.route_request(req_, res_);
 
         // @cuiruoni+统一设置响应头，CORS头已由cors_middleware正确设置，此处不再覆盖
