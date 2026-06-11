@@ -79,6 +79,10 @@ int main(int argc, char* argv[]) {
 
         Router router;
 
+        // @cuiruoni+注册路径白名单认证中间件，作为安全网关防止新增接口时遗漏认证检查
+        // @cuiruoni+公开接口（注册、登录、文章列表等）自动放行，受保护接口检查token
+        router.add_middleware(create_path_protected_auth_middleware());
+
         // @cuiruoni+注册各业务模块路由，每个模块独立管理自己的路由表
         register_auth_routes(router);
         register_post_routes(router);

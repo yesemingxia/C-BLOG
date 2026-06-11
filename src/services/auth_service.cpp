@@ -86,4 +86,59 @@ bool extract_admin_from_token(const http::request<http::string_body>& req,
     return role == "admin";
 }
 
+// @cuiruoni+记录登录失败次数，5次失败后锁定账号30分钟
+void record_login_failure(const std::string& username) {
+    auto ctx = RedisPool::instance().acquire();
+    if (!ctx) return;
+
+    std::string key = "login_fail:" + username;
+    redisReply* reply = (redisReply*)redisCommand(ctx.get(), "INCR %s", key.c_str());
+    long long count = 0;
+    if (reply) {
+        count = reply->integer;
+        freeReplyObject(reply);
+    }
+
+    // @cuiruoni+首次失败时设置30分钟窗口
+    if (count == 1) {
+        redisReply* expire_reply = (redisReply*)redisCommand(ctx.get(), "EXPIRE %s %d", key.c_str(), 1800);
+        if (expire_reply) freeReplyObject(expire_reply);
+    }
+
+    // @cuiruoni+达到5次失败后锁定30分钟（保持key的TTL）
+    if (count >= 5) {
+        spdlog::warn("Account locked due to too many login failures: {}", username);
+    }
+}
+
+// @cuiruoni+检查账号是否被锁定（登录失败次数>=5），返回true表示被锁定
+bool is_account_locked(const std::string& username) {
+    auto ctx = RedisPool::instance().acquire();
+    if (!ctx) return false;
+
+    std::string key = "login_fail:" + username;
+    redisReply* reply = (redisReply*)redisCommand(ctx.get(), "GET %s", key.c_str());
+    if (!reply) return false;
+
+    long long count = 0;
+    if (reply->type == REDIS_REPLY_INTEGER) {
+        count = reply->integer;
+    } else if (reply->type == REDIS_REPLY_STRING) {
+        try { count = std::stoll(reply->str); } catch (...) {}
+    }
+    freeReplyObject(reply);
+
+    return count >= 5;
+}
+
+// @cuiruoni+登录成功后清除失败计数
+void clear_login_failures(const std::string& username) {
+    auto ctx = RedisPool::instance().acquire();
+    if (!ctx) return;
+
+    std::string key = "login_fail:" + username;
+    redisReply* reply = (redisReply*)redisCommand(ctx.get(), "DEL %s", key.c_str());
+    if (reply) freeReplyObject(reply);
+}
+
 }

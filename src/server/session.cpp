@@ -69,6 +69,7 @@ void Session::handle_request() {
         if (path == "/api/auth/login") endpoint = "login";
         else if (path == "/api/auth/register") endpoint = "register";
         else if (path.find("/api/posts/") != std::string::npos && path.find("/comments") != std::string::npos) endpoint = "comment";
+        else if (path == "/api/contact") endpoint = "contact";
 
         // @cuiruoni+优先使用X-Real-IP（Nginx设置），避免X-Forwarded-For可被客户端伪造
         std::string client_ip = req_.find("X-Real-IP") != req_.end()

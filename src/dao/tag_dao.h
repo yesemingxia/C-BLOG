@@ -13,6 +13,6 @@ namespace tag_dao {
 json::array list_with_post_count();
 
 // @cuiruoni+根据标签ID查询关联的文章列表
-json::array find_posts_by_tag_id(int tag_id);
+json::array find_posts_by_tag_id(int64_t tag_id);
 
 }

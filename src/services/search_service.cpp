@@ -3,12 +3,31 @@
 #include "db/redis_pool.h"
 #include "utils/logger.h"
 
+#include <sstream>
+#include <iomanip>
+
 namespace search_service {
+
+// @cuiruoni+将keyword转为安全的Redis key：只保留字母数字，其余转hex，截断到100字符
+static std::string sanitize_cache_key(const std::string& keyword) {
+    std::ostringstream oss;
+    oss << "search:";
+    for (unsigned char c : keyword) {
+        if (std::isalnum(c)) {
+            oss << static_cast<char>(c);
+        } else {
+            oss << '%' << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(c);
+        }
+    }
+    std::string key = oss.str();
+    if (key.size() > 120) key = key.substr(0, 120);
+    return key;
+}
 
 json::array search(const std::string& keyword) {
     if (keyword.empty()) return json::array{};
 
-    std::string cache_key = "search:" + keyword;
+    std::string cache_key = sanitize_cache_key(keyword);
     auto ctx = RedisPool::instance().acquire();
     if (ctx) {
         redisReply* reply = (redisReply*)redisCommand(ctx.get(), "GET %s", cache_key.c_str());

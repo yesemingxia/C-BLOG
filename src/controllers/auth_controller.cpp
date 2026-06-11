@@ -11,6 +11,7 @@
 
 #include <boost/json.hpp>
 #include <jwt-cpp/traits/boost-json/traits.h>
+#include <regex>
 
 namespace json = boost::json;
 namespace http = boost::beast::http;
@@ -35,10 +36,31 @@ static http::response<http::string_body> handle_register(
             return res;
         }
 
-        // @cuiruoni+密码长度校验：注册时强制最小6位，与修改密码逻辑一致
+        // @cuiruoni+密码复杂度校验：至少6位，包含大小写字母和数字
         if (password.size() < 6) {
             http::response<http::string_body> res{http::status::bad_request, req.version()};
             res.body() = response::error(400, "Password must be at least 6 characters");
+            res.prepare_payload();
+            return res;
+        }
+        if (password.size() > 128) {
+            http::response<http::string_body> res{http::status::bad_request, req.version()};
+            res.body() = response::error(400, "Password must be at most 128 characters");
+            res.prepare_payload();
+            return res;
+        }
+        {
+            static std::regex complexity(R"((?=.*[a-z])(?=.*[A-Z])(?=.*\d))");
+            if (!std::regex_search(password, complexity)) {
+                http::response<http::string_body> res{http::status::bad_request, req.version()};
+                res.body() = response::error(400, "Password must contain uppercase, lowercase and digit");
+                res.prepare_payload();
+                return res;
+            }
+        }
+        if (sanitize::is_common_weak_password(password)) {
+            http::response<http::string_body> res{http::status::bad_request, req.version()};
+            res.body() = response::error(400, "This password is too common, please choose a stronger one");
             res.prepare_payload();
             return res;
         }
@@ -109,27 +131,40 @@ static http::response<http::string_body> handle_login(
             return res;
         }
 
+        // @cuiruoni+检查账号是否因登录失败次数过多被锁定
+        if (auth_service::is_account_locked(username)) {
+            http::response<http::string_body> res{http::status::too_many_requests, req.version()};
+            res.body() = response::error(429, "Account temporarily locked due to too many failed login attempts. Please try again later.");
+            res.prepare_payload();
+            return res;
+        }
+
         // @cuiruoni+支持用户名或邮箱登录，通过DAO层查询用户信息
         int64_t user_id = 0;
         std::string db_username, hash_b64, salt_b64, role, db_email;
         if (!user_dao::find_by_username_or_email(username, user_id, db_username, hash_b64, salt_b64, role, db_email)) {
+            // @cuiruoni+用户不存在也记录失败，防止通过响应时间枚举用户名
+            auth_service::record_login_failure(username);
             http::response<http::string_body> res{http::status::unauthorized, req.version()};
             res.body() = response::error(401, "Invalid username/email or password");
             res.prepare_payload();
             return res;
         }
 
-        // @cuiruoni+密码验证：解码存储的Base64盐和哈希，用相同盐重新计算哈希后比对
+        // @cuiruoni+密码验证：解码存储的Base64盐和哈希，用相同盐重新计算哈希后比对（常量时间比较防时序攻击）
         std::string salt = password::base64_decode(salt_b64);
         std::string expected_hash = password::base64_decode(hash_b64);
-        std::string actual_hash = password::hash_password(password, salt);
 
-        if (actual_hash != expected_hash) {
+        if (!password::verify_password(password, salt, expected_hash)) {
+            auth_service::record_login_failure(db_username);
             http::response<http::string_body> res{http::status::unauthorized, req.version()};
             res.body() = response::error(401, "Invalid username/email or password");
             res.prepare_payload();
             return res;
         }
+
+        // @cuiruoni+登录成功，清除失败计数
+        auth_service::clear_login_failures(db_username);
 
         // @cuiruoni+验证通过，生成JWT token，包含user_id、username、role声明
         std::string token = auth_service::generate_token(user_id, db_username, role);
@@ -252,11 +287,11 @@ static http::response<http::string_body> handle_update_profile(
         std::string bio = body.contains("bio") && !body["bio"].is_null()
             ? sanitize::truncate(sanitize::clean_text(std::string(body["bio"].as_string())), 500) : "";
         std::string avatar = body.contains("avatar") && !body["avatar"].is_null()
-            ? sanitize::truncate(std::string(body["avatar"].as_string()), 500) : "";
+            ? sanitize::safe_url(std::string(body["avatar"].as_string())) : "";
         std::string location = body.contains("location") && !body["location"].is_null()
             ? sanitize::truncate(sanitize::clean_text(std::string(body["location"].as_string())), 100) : "";
         std::string website = body.contains("website") && !body["website"].is_null()
-            ? sanitize::truncate(std::string(body["website"].as_string()), 200) : "";
+            ? sanitize::safe_url(std::string(body["website"].as_string())) : "";
         std::string twitter = body.contains("twitter") && !body["twitter"].is_null()
             ? sanitize::truncate(sanitize::clean_text(std::string(body["twitter"].as_string())), 100) : "";
 
@@ -328,6 +363,27 @@ static http::response<http::string_body> handle_change_password(
             res.prepare_payload();
             return res;
         }
+        if (new_password.size() > 128) {
+            http::response<http::string_body> res{http::status::bad_request, req.version()};
+            res.body() = response::error(400, "New password must be at most 128 characters");
+            res.prepare_payload();
+            return res;
+        }
+        {
+            static std::regex complexity(R"((?=.*[a-z])(?=.*[A-Z])(?=.*\d))");
+            if (!std::regex_search(new_password, complexity)) {
+                http::response<http::string_body> res{http::status::bad_request, req.version()};
+                res.body() = response::error(400, "New password must contain uppercase, lowercase and digit");
+                res.prepare_payload();
+                return res;
+            }
+        }
+        if (sanitize::is_common_weak_password(new_password)) {
+            http::response<http::string_body> res{http::status::bad_request, req.version()};
+            res.body() = response::error(400, "This password is too common, please choose a stronger one");
+            res.prepare_payload();
+            return res;
+        }
 
         // @cuiruoni+通过DAO层查询用户密码哈希和盐
         std::string hash_b64, salt_b64;
@@ -338,12 +394,11 @@ static http::response<http::string_body> handle_change_password(
             return res;
         }
 
-        // @cuiruoni+验证旧密码
+        // @cuiruoni+验证旧密码（常量时间比较防时序攻击）
         std::string salt = password::base64_decode(salt_b64);
         std::string expected_hash = password::base64_decode(hash_b64);
-        std::string actual_hash = password::hash_password(old_password, salt);
 
-        if (actual_hash != expected_hash) {
+        if (!password::verify_password(old_password, salt, expected_hash)) {
             http::response<http::string_body> res{http::status::bad_request, req.version()};
             res.body() = response::error(400, "Old password is incorrect");
             res.prepare_payload();

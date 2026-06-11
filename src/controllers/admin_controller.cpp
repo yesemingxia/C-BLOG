@@ -71,6 +71,7 @@ static http::response<http::string_body> handle_admin_list_users(
     if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second);
     it = params.query.find("page_size");
     if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second);
+    if (page_size > 100) page_size = 100; // @cuiruoni+限制page_size上限
 
     try {
         int total = 0;
@@ -233,8 +234,14 @@ static http::response<http::string_body> handle_admin_list_posts(
     if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second);
     it = params.query.find("page_size");
     if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second);
+    if (page_size > 100) page_size = 100; // @cuiruoni+限制page_size上限
     it = params.query.find("status");
-    if (it != params.query.end()) status = it->second;
+    if (it != params.query.end()) {
+        const auto& s = it->second;
+        if (s == "all" || s == "draft" || s == "published") {
+            status = s;
+        }
+    }
 
     try {
         int total = 0;
@@ -324,6 +331,7 @@ static http::response<http::string_body> handle_admin_list_comments(
     if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second);
     it = params.query.find("page_size");
     if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second);
+    if (page_size > 100) page_size = 100; // @cuiruoni+限制page_size上限
 
     try {
         int total = 0;

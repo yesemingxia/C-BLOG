@@ -119,6 +119,8 @@ void Database::init_tables() {
 
         // @cuiruoni+数据库迁移：为已有users表添加新字段（CREATE IF NOT EXISTS不会添加新列）
         // @cuiruoni+使用存储过程安全添加列，列已存在时跳过
+        // @cuiruoni+SECURITY WARNING: 此lambda使用字符串拼接构建SQL，仅限硬编码常量调用
+        // @cuiruoni+严禁将用户输入传入此函数，否则将导致SQL注入
         auto add_column_if_not_exists = [&](const std::string& table, const std::string& column, const std::string& definition) {
             try {
                 sess->sql(

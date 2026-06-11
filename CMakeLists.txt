@@ -25,6 +25,11 @@ if(NOT CMAKE_TOOLCHAIN_FILE)
     endif()
 endif()
 
+# 确保 vcpkg 安装目录在搜索路径中
+if(EXISTS "${VCPKG_ROOT}/installed/x64-windows")
+    list(APPEND CMAKE_PREFIX_PATH "${VCPKG_ROOT}/installed/x64-windows")
+endif()
+
 # 消除 Boost 1.88 的 FindBoost 策略警告
 cmake_policy(SET CMP0144 NEW)
 cmake_policy(SET CMP0167 NEW)
@@ -41,6 +46,7 @@ else()
     set(BOOST_ROOT "D:/boost_1_88_0")
 endif()
 set(Boost_NO_SYSTEM_PATHS ON)
+set(Boost_DIR "${BOOST_ROOT}/stage/lib/cmake/Boost-1.88.0" CACHE PATH "Boost cmake config directory")
 find_package(Boost 1.88 REQUIRED COMPONENTS
     system filesystem thread program_options json
 )

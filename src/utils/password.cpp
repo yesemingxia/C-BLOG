@@ -1,6 +1,7 @@
 #include "utils/password.h"
 
 #include <openssl/evp.h>
+#include <openssl/crypto.h>
 #include <random>
 #include <vector>
 
@@ -26,7 +27,9 @@ std::string hash_password(const std::string& password, const std::string& salt,
 
 bool verify_password(const std::string& password, const std::string& salt,
                      const std::string& expected_hash) {
-    return hash_password(password, salt) == expected_hash;
+    std::string actual = hash_password(password, salt);
+    if (actual.size() != expected_hash.size()) return false;
+    return CRYPTO_memcmp(actual.data(), expected_hash.data(), actual.size()) == 0;
 }
 
 static const char kBase64Chars[] =

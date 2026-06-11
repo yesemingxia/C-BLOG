@@ -39,9 +39,9 @@ bool mark_read(int64_t notif_id, int64_t user_id) {
     if (!sess) return false;
 
     try {
-        sess->sql("UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?")
+        auto result = sess->sql("UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?")
             .bind(notif_id).bind(user_id).execute();
-        return true;
+        return result.getAffectedItemsCount() > 0;
     } catch (const std::exception& e) {
         spdlog::error("notification_dao::mark_read error: {}", e.what());
         return false;
@@ -67,9 +67,9 @@ bool delete_by_id(int64_t notif_id, int64_t user_id) {
     if (!sess) return false;
 
     try {
-        sess->sql("DELETE FROM notifications WHERE id = ? AND user_id = ?")
+        auto result = sess->sql("DELETE FROM notifications WHERE id = ? AND user_id = ?")
             .bind(notif_id).bind(user_id).execute();
-        return true;
+        return result.getAffectedItemsCount() > 0;
     } catch (const std::exception& e) {
         spdlog::error("notification_dao::delete_by_id error: {}", e.what());
         return false;

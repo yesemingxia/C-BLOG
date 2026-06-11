@@ -1,6 +1,7 @@
 #include "services/post_service.h"
 #include "services/markdown_service.h"
 #include "dao/post_dao.h"
+#include "db/redis_pool.h"
 #include "utils/logger.h"
 #include "utils/sanitize.h"
 
@@ -40,8 +41,9 @@ Post json_to_post(const json::object& obj) {
     if (obj.contains("tags") && obj.at("tags").is_array()) {
         for (const auto& tag : obj.at("tags").as_array()) {
             if (!tag.is_string()) continue;
-            std::string name(tag.as_string());
-            if (!name.empty() && name.size() <= 50) {
+            std::string name = sanitize::truncate(sanitize::clean_text(
+                std::string(tag.as_string())), 50);
+            if (!name.empty()) {
                 p.tags.push_back(name);
             }
         }
@@ -62,19 +64,30 @@ json::array list_posts(int page, int page_size, const std::string& status, int& 
     }
 }
 
-// @cuiruoni+获取单篇文章详情，查询后自动将浏览量+1
-Post get_post(int64_t id) {
+// @cuiruoni+获取单篇文章详情，increment_view控制是否自增浏览量
+Post get_post(int64_t id, bool increment_view) {
     try {
         Post p = post_dao::find_by_id(id);
         if (p.id == 0) return p;
 
         // @cuiruoni+浏览量自增：每次读取文章详情时+1，非原子操作但在单线程io_context下安全
-        post_dao::increment_view_count(id);
+        if (increment_view) {
+            post_dao::increment_view_count(id);
+        }
 
         return p;
     } catch (const std::exception& e) {
         spdlog::error("get_post error: {}", e.what());
         return Post{};
+    }
+}
+
+// @cuiruoni+单独增加浏览量，供controller层基于Redis去重后调用
+void increment_view_count(int64_t id) {
+    try {
+        post_dao::increment_view_count(id);
+    } catch (const std::exception& e) {
+        spdlog::error("increment_view_count error: {}", e.what());
     }
 }
 

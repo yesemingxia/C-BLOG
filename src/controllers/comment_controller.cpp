@@ -69,6 +69,13 @@ static http::response<http::string_body> handle_create_comment(
         std::string author_name = sanitize::truncate(sanitize::clean_text(auth_username), 50);
         std::string content = sanitize::clean_text(
             std::string(body["content"].as_string()));
+        // @cuiruoni+评论内容不能为空
+        if (content.empty()) {
+            http::response<http::string_body> res{http::status::bad_request, req.version()};
+            res.body() = response::error(400, "Comment content cannot be empty");
+            res.prepare_payload();
+            return res;
+        }
         std::string author_email = "";
         int64_t parent_id = body.contains("parent_id") && !body["parent_id"].is_null()
             ? body["parent_id"].as_int64() : 0;

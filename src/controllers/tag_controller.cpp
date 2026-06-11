@@ -3,6 +3,7 @@
 #include "dao/tag_dao.h"
 #include "utils/logger.h"
 #include "utils/response.h"
+#include "utils/sanitize.h"
 
 #include <boost/json.hpp>
 
@@ -39,7 +40,13 @@ static http::response<http::string_body> handle_tag_posts(
         return res;
     }
 
-    int tag_id = std::stoi(it->second);
+    int64_t tag_id = sanitize::safe_stoll(it->second);
+    if (tag_id <= 0) {
+        http::response<http::string_body> res{http::status::bad_request, req.version()};
+        res.body() = response::error(400, "Invalid tag id");
+        res.prepare_payload();
+        return res;
+    }
 
     try {
         json::array arr = tag_dao::find_posts_by_tag_id(tag_id);

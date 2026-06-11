@@ -62,7 +62,12 @@ static http::response<http::string_body> handle_mark_read(
     int64_t notif_id = sanitize::safe_stoll(it->second);
 
     try {
-        notification_dao::mark_read(notif_id, user_id);
+        if (!notification_dao::mark_read(notif_id, user_id)) {
+            http::response<http::string_body> res{http::status::not_found, req.version()};
+            res.body() = response::error(404, "Notification not found");
+            res.prepare_payload();
+            return res;
+        }
 
         http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(std::string("Notification marked as read"));
@@ -128,7 +133,12 @@ static http::response<http::string_body> handle_delete_notification(
     int64_t notif_id = sanitize::safe_stoll(it->second);
 
     try {
-        notification_dao::delete_by_id(notif_id, user_id);
+        if (!notification_dao::delete_by_id(notif_id, user_id)) {
+            http::response<http::string_body> res{http::status::not_found, req.version()};
+            res.body() = response::error(404, "Notification not found");
+            res.prepare_payload();
+            return res;
+        }
 
         http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(std::string("Notification deleted"));

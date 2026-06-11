@@ -31,7 +31,7 @@ json::array list_with_post_count() {
     }
 }
 
-json::array find_posts_by_tag_id(int tag_id) {
+json::array find_posts_by_tag_id(int64_t tag_id) {
     auto sess = MysqlPool::instance().acquire();
     if (!sess) return json::array{};
 

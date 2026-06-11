@@ -2,6 +2,7 @@
 
 #include "services/auth_service.h"
 #include "services/post_service.h"
+#include "db/redis_pool.h"
 #include "utils/logger.h"
 #include "utils/response.h"
 #include "utils/sanitize.h"
@@ -22,8 +23,15 @@ static http::response<http::string_body> handle_list_posts(
     if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second, 1);
     it = params.query.find("page_size");
     if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second, 10);
+    if (page_size > 100) page_size = 100; // @cuiruoni+限制page_size上限，防止大查询
     it = params.query.find("status");
-    if (it != params.query.end()) status = it->second;
+    if (it != params.query.end()) {
+        const auto& s = it->second;
+        if (s == "all" || s == "draft" || s == "published") {
+            status = s;
+        }
+        // @cuiruoni+非法status值保持默认"all"，不传入数据库
+    }
 
     int total = 0;
     auto arr = post_service::list_posts(page, page_size, status, total);
@@ -51,12 +59,31 @@ static http::response<http::string_body> handle_get_post(
     }
 
     int64_t id = sanitize::safe_stoll(it->second);
-    auto post = post_service::get_post(id);
+    auto post = post_service::get_post(id, false); // @cuiruoni+先不增加浏览量
     if (post.id == 0) {
         http::response<http::string_body> res{http::status::not_found, req.version()};
         res.body() = response::error(404, "Post not found");
         res.prepare_payload();
         return res;
+    }
+
+    // @cuiruoni+基于IP的浏览量去重：同一IP对同一文章60秒内只计一次浏览
+    std::string client_ip = req.find("X-Real-IP") != req.end()
+        ? std::string(req["X-Real-IP"]) : "unknown";
+    std::string view_key = "viewed:" + std::to_string(id) + ":" + client_ip;
+    auto ctx = RedisPool::instance().acquire();
+    if (ctx) {
+        redisReply* reply = (redisReply*)redisCommand(ctx.get(), "SET %s 1 EX 60 NX", view_key.c_str());
+        bool is_new_view = (reply && reply->type == REDIS_REPLY_STATUS && std::string(reply->str) == "OK");
+        freeReplyObject(reply);
+        if (is_new_view) {
+            post_service::increment_view_count(id);
+            post.view_count += 1;
+        }
+    } else {
+        // @cuiruoni+Redis不可用时仍增加浏览量
+        post_service::increment_view_count(id);
+        post.view_count += 1;
     }
 
     http::response<http::string_body> res{http::status::ok, req.version()};
@@ -80,6 +107,19 @@ static http::response<http::string_body> handle_create_post(
     try {
         auto body = json::parse(req.body()).as_object();
         auto post = post_service::json_to_post(body);
+        // @cuiruoni+必填校验：标题和内容不能为空
+        if (post.title.empty()) {
+            http::response<http::string_body> res{http::status::bad_request, req.version()};
+            res.body() = response::error(400, "Title is required");
+            res.prepare_payload();
+            return res;
+        }
+        if (post.content_md.empty()) {
+            http::response<http::string_body> res{http::status::bad_request, req.version()};
+            res.body() = response::error(400, "Content is required");
+            res.prepare_payload();
+            return res;
+        }
         post.user_id = user_id;
         int64_t id = post_service::create_post(post);
         if (id == 0) {

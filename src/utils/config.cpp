@@ -76,7 +76,7 @@ int Config::redis_port() const { return get_int("redis_port", 6379); }
 std::string Config::redis_password() const { return get_string("redis_password", ""); }
 int Config::redis_pool_size() const { return get_int("redis_pool_size", 4); }
 std::string Config::jwt_secret() const { return get_string("jwt_secret", ""); }
-int Config::jwt_expire_seconds() const { return get_int("jwt_expire_seconds", 86400); } // @cuiruoni+默认24小时
+int Config::jwt_expire_seconds() const { return get_int("jwt_expire_seconds", 14400); } // @cuiruoni+默认4小时，生产环境建议缩短
 std::string Config::cors_allowed_origin() const { return get_string("cors_allowed_origin", "http://localhost:5173"); }
 int Config::max_request_body_bytes() const { return get_int("max_request_body_bytes", 1048576); }
 int Config::server_threads() const { return get_int("server_threads", 0); }
