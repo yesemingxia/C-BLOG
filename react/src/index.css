@@ -108,11 +108,9 @@
   }
 
   .bento-card:hover {
-    transform: scale(1.02);
     box-shadow:
       0 12px 48px 0 rgba(0, 0, 0, 0.12),
-      0 0 20px rgba(124, 106, 255, 0.15),
-      0 0 40px rgba(56, 189, 248, 0.08);
+      0 0 20px rgba(124, 106, 255, 0.1);
   }
 
   .bento-card:hover::before {
@@ -131,7 +129,6 @@
   }
 
   .glass-card:hover {
-    transform: translateY(-4px);
     box-shadow: 0 12px 48px 0 rgba(0, 0, 0, 0.12);
     border-color: var(--primary);
   }

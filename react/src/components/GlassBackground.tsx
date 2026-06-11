@@ -31,7 +31,7 @@ const GlassBackground = ({ showParticles = true }: GlassBackgroundProps) => {
 
     const colors = ["124, 106, 255", "56, 189, 248", "168, 85, 247", "99, 102, 241"];
 
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 30; i++) {
       particles.push({
         x: Math.random() * canvas.width,
         y: Math.random() * canvas.height,

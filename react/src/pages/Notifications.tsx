@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Bell, Heart, MessageCircle, UserPlus, Star, Check, CheckCheck, Trash2, Filter } from "lucide-react";
 import GlassBackground from "../components/GlassBackground";
 import Navbar from "../components/Navbar";
+import { useAuth } from "../components/AuthProvider";
 import { notificationsApi, ApiNotification } from "../lib/api";
 
 // @cuiruoni+通知类型定义：5种通知——like(点赞)、comment(评论)、follow(关注)、system(系统)、mention(提及)
@@ -35,10 +36,9 @@ const filterOptions = [`全部`, `点赞`, `评论`, `关注`, `系统`];
 // @cuiruoni+通知中心组件：5种通知类型展示、已读/未读状态、筛选过滤、批量标记已读和删除
 const Notifications = () => {
   const navigate = useNavigate();
-  // @cuiruoni+通知列表状态：支持单条标记已读、删除、全部标记已读等操作
+  const { isLoggedIn, logout } = useAuth();
   const [items, setItems] = useState(notifs);
-  const [filter, setFilter] = useState(`全部`);
-  const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
+  const [filter, setFilter] = useState("全部");
 
   // @cuiruoni+从API加载通知列表，将ApiNotification映射为本地Notification接口
   useEffect(() => {
@@ -84,9 +84,9 @@ const Notifications = () => {
     setItems((prev) => prev.filter((n) => n.id !== id));
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem(`blog_logged_in`);
-    navigate(`/login`);
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login");
   };
 
   return (

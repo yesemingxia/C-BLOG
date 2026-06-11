@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import GlassBackground from "../components/GlassBackground";
 import Navbar from "../components/Navbar";
+import { useAuth } from "../components/AuthProvider";
 import { toast } from "sonner";
 import { postsApi, tagsApi } from "../lib/api";
 
@@ -29,7 +30,8 @@ const DEFAULT_TAGS = [`React`, `TypeScript`, `CSS`, `设计`, `前端`, `后端`
 const Write = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const editId = searchParams.get('edit') ? Number(searchParams.get('edit')) : null;
+  const { isLoggedIn, logout } = useAuth();
+  const editId = searchParams.get("edit") ? Number(searchParams.get("edit")) : null;
   const [allTags, setAllTags] = useState<string[]>(DEFAULT_TAGS);
 
   useEffect(() => {
@@ -56,7 +58,6 @@ const Write = () => {
   const [summary, setSummary] = useState(``);
   const [saving, setSaving] = useState(false);
   const [visibility, setVisibility] = useState(`public`);
-  const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // @cuiruoni+编辑模式：加载已有文章数据
@@ -68,7 +69,7 @@ const Write = () => {
         setContent(post.content_md || ``);
         setSelectedTags(post.tags || []);
         setSummary(post.summary || ``);
-        setVisibility(post.status === `draft` ? `draft` : (post as any).visibility || `public`);
+        setVisibility(post.status === "draft" ? "draft" : "public");
         if (post.cover) setCoverUrl(post.cover);
       }
     }).catch(() => {
@@ -117,12 +118,12 @@ const Write = () => {
 
   const savePost = async (status: "draft" | "published") => {
     if (!isLoggedIn) {
-      toast.error(`请先登录`);
-      navigate(`/login`);
+      toast.error("请先登录");
+      navigate("/login");
       return null;
     }
     if (!title.trim()) {
-      toast.error(`请填写文章标题`);
+      toast.error("请填写文章标题");
       return null;
     }
 
@@ -182,9 +183,9 @@ const Write = () => {
     });
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem(`blog_logged_in`);
-    navigate(`/login`);
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login");
   };
 
   return (

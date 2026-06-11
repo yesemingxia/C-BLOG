@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import GlassBackground from "../components/GlassBackground";
 import Navbar from "../components/Navbar";
+import { useAuth } from "../components/AuthProvider";
 import { toast } from "sonner";
 import { profileApi, type UserProfile } from "../lib/api";
 
@@ -36,8 +37,8 @@ const themeAccents = [
 // @cuiruoni+设置页组件：5个设置分区（资料/通知/隐私/外观/账号），左侧导航+右侧内容布局
 const Settings = () => {
   const navigate = useNavigate();
-  const [activeSection, setActiveSection] = useState(`profile`);
-  const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
+  const { isLoggedIn, logout } = useAuth();
+  const [activeSection, setActiveSection] = useState("profile");
 
   // Profile form - loaded from API
   const [profileLoading, setProfileLoading] = useState(true);
@@ -55,8 +56,8 @@ const Settings = () => {
   useEffect(() => {
     const loadProfile = async () => {
       setProfileLoading(true);
-      const profile = await profileApi.get();
-      if (profile) {
+      try {
+        const profile = await profileApi.get();
         setName(profile.username);
         setBio(profile.bio);
         setLocation(profile.location);
@@ -64,7 +65,7 @@ const Settings = () => {
         setTwitter(profile.twitter);
         setEmail(profile.email);
         if (profile.avatar) setAvatarUrl(profile.avatar);
-      }
+      } catch { /* ignore */ }
       setProfileLoading(false);
     };
     loadProfile();
@@ -95,12 +96,13 @@ const Settings = () => {
 
   const handleSaveProfile = async () => {
     setSavingProfile(true);
-    const result = await profileApi.update({ email, bio, avatar: avatarUrl || undefined, location, website, twitter });
-    setSavingProfile(false);
-    if (result) {
-      toast.success(`个人资料已保存！`);
-    } else {
-      toast.error(`保存失败，请稍后重试`);
+    try {
+      await profileApi.update({ email, bio, avatar: avatarUrl || undefined, location, website, twitter });
+      toast.success("个人资料已保存！");
+    } catch {
+      toast.error("保存失败，请稍后重试");
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -115,23 +117,24 @@ const Settings = () => {
 
   const handleChangePass = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!oldPass) { toast.error(`请输入当前密码`); return; }
-    if (newPass.length < 6) { toast.error(`密码至少需要6位`); return; }
+    if (!oldPass) { toast.error("请输入当前密码"); return; }
+    if (newPass.length < 6) { toast.error("密码至少需要6位"); return; }
     setChangingPass(true);
-    const ok = await profileApi.changePassword(oldPass, newPass);
-    setChangingPass(false);
-    if (ok) {
-      toast.success(`密码修改成功！`);
-      setOldPass(``);
-      setNewPass(``);
-    } else {
-      toast.error(`密码修改失败，请检查当前密码是否正确`);
+    try {
+      await profileApi.changePassword(oldPass, newPass);
+      toast.success("密码修改成功！");
+      setOldPass("");
+      setNewPass("");
+    } catch {
+      toast.error("密码修改失败，请检查当前密码是否正确");
+    } finally {
+      setChangingPass(false);
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem(`blog_logged_in`);
-    navigate(`/login`);
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login");
   };
 
   // @cuiruoni+危险操作：删除账号需要二次确认，防止误操作

@@ -1,7 +1,11 @@
 import React, { Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { ThemeProvider, useTheme } from "./components/ThemeProvider";
+import { AuthProvider } from "./components/AuthProvider";
+import { ProtectedRoute } from "./components/ProtectedRoute";
+import NotFound from "./pages/NotFound";
 
 const Login = React.lazy(() => import("./pages/Login"));
 const Home = React.lazy(() => import("./pages/Home"));
@@ -14,50 +18,35 @@ const Notifications = React.lazy(() => import("./pages/Notifications"));
 const Settings = React.lazy(() => import("./pages/Settings"));
 const Admin = React.lazy(() => import("./pages/Admin"));
 
-// @cuiruoni+错误边界组件：捕获子组件树中的运行时异常，防止整个应用白屏崩溃
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
+
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean }
 > {
   state = { hasError: false };
-  // @cuiruoni+静态生命周期：渲染阶段捕获错误，更新state触发降级UI
   static getDerivedStateFromError() {
     return { hasError: true };
   }
-  // @cuiruoni+提交阶段副作用：记录错误日志，可用于上报错误监控平台
   componentDidCatch(error: Error) {
-    console.log(`ErrorBoundary caught:`, error);
+    console.error("ErrorBoundary caught:", error);
   }
   render() {
     if (this.state.hasError) {
       return (
-        <div
-          style={{
-            minHeight: `100vh`,
-            display: `flex`,
-            alignItems: `center`,
-            justifyContent: `center`,
-            flexDirection: `column`,
-            gap: 12,
-            color: `rgba(232,234,246,0.6)`,
-            background: `#050816`,
-          }}
-        >
-          <div style={{ fontSize: 48 }}>💫</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: `rgba(232,234,246,0.8)` }}>出现了一点小问题</div>
-          <div style={{ fontSize: 14 }}>请刷新页面重试</div>
+        <div className="min-h-screen flex items-center justify-center flex-col gap-3 bg-background text-foreground/60">
+          <div className="text-lg font-bold">出现了一点小问题</div>
           <button
             onClick={() => window.location.reload()}
-            style={{
-              marginTop: 8,
-              padding: `10px 24px`,
-              borderRadius: 12,
-              background: `linear-gradient(135deg, #7c6aff, #38bdf8)`,
-              color: `white`,
-              border: `none`,
-              cursor: `pointer`,
-              fontWeight: 600,
-            }}
+            className="btn-primary-glass px-6 py-2 rounded-lg text-sm text-white"
           >
             刷新页面
           </button>
@@ -68,8 +57,6 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-/* Toaster that adapts to current theme */
-// @cuiruoni+主题化通知组件：根据当前深色/浅色模式动态切换Toast样式，保持视觉一致性
 const ThemedToaster = () => {
   const { isDark } = useTheme();
   return (
@@ -77,10 +64,10 @@ const ThemedToaster = () => {
       position="top-right"
       toastOptions={{
         style: {
-          background: isDark ? `rgba(15,18,40,0.92)` : `rgba(255,255,255,0.92)`,
-          border: `1px solid ${isDark ? 'rgba(124,106,255,0.25)' : 'rgba(99,102,241,0.2)'}`,
-          color: isDark ? `rgba(232,234,246,0.9)` : `rgba(15,23,42,0.9)`,
-          backdropFilter: `blur(20px)`,
+          background: isDark ? "rgba(15,18,40,0.92)" : "rgba(255,255,255,0.92)",
+          border: `1px solid ${isDark ? "rgba(124,106,255,0.25)" : "rgba(99,102,241,0.2)"}`,
+          color: isDark ? "rgba(232,234,246,0.9)" : "rgba(15,23,42,0.9)",
+          backdropFilter: "blur(20px)",
         },
       }}
     />
@@ -88,41 +75,39 @@ const ThemedToaster = () => {
 };
 
 const PageLoading = () => (
-  <div
-    className="min-h-screen flex items-center justify-center"
-    style={{ background: `#050816`, color: `rgba(232,234,246,0.7)` }}
-  >
+  <div className="min-h-screen flex items-center justify-center bg-background text-foreground/60">
     加载中...
   </div>
 );
 
-// @cuiruoni+应用根组件：组装路由、主题、错误边界和全局通知，形成完整的应用壳
 const App = () => (
   <BrowserRouter>
-    {/* @cuiruoni+ThemeProvider必须包裹在最外层，确保所有子组件都能访问主题上下文 */}
-    <ThemeProvider>
-      <ErrorBoundary>
-        <Suspense fallback={<PageLoading />}>
-          <Routes>
-            {/* @cuiruoni+根路径重定向到/home，统一首页入口 */}
-            <Route path="/" element={<Navigate to="/home" replace />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/home" element={<Home />} />
-            <Route path="/explore" element={<Explore />} />
-            <Route path="/post" element={<Post />} />
-            <Route path="/write" element={<Write />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/profile/:username" element={<Profile />} />
-            <Route path="/search" element={<SearchPage />} />
-            <Route path="/notifications" element={<Notifications />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/admin" element={<Admin />} />
-          </Routes>
-        </Suspense>
-      </ErrorBoundary>
-      {/* @cuiruoni+ThemedToaster放在ThemeProvider内但Routes外，确保全局可用且可读取主题 */}
-      <ThemedToaster />
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <AuthProvider>
+          <ErrorBoundary>
+            <Suspense fallback={<PageLoading />}>
+              <Routes>
+                <Route path="/" element={<Navigate to="/home" replace />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/home" element={<Home />} />
+                <Route path="/explore" element={<Explore />} />
+                <Route path="/post" element={<Post />} />
+                <Route path="/write" element={<ProtectedRoute><Write /></ProtectedRoute>} />
+                <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+                <Route path="/profile/:username" element={<Profile />} />
+                <Route path="/search" element={<SearchPage />} />
+                <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
+                <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Suspense>
+          </ErrorBoundary>
+          <ThemedToaster />
+        </AuthProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
   </BrowserRouter>
 );
 

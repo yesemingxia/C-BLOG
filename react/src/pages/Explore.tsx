@@ -4,6 +4,7 @@ import { Search, TrendingUp, Grid, List, SlidersHorizontal } from "lucide-react"
 import BlogCard, { BlogPost } from "../components/BlogCard";
 import GlassBackground from "../components/GlassBackground";
 import Navbar from "../components/Navbar";
+import { useAuth } from "../components/AuthProvider";
 import { postsApi, searchApi, type ApiPost } from "../lib/api";
 
 const tabs = [`全部`, `技术`, `设计`, `AI`, `工程化`];
@@ -31,13 +32,12 @@ function toBlogPost(p: ApiPost): BlogPost {
 // @cuiruoni+探索页组件：API数据获取+搜索防抖+分类筛选+排序+网格/列表视图切换
 const Explore = () => {
   const navigate = useNavigate();
-  const [searchVal, setSearchVal] = useState(``);
-  const [activeTab, setActiveTab] = useState(`全部`);
-  const [sortBy, setSortBy] = useState(`最新`);
-  // @cuiruoni+视图模式切换：grid(卡片网格)和list(紧凑列表)两种展示方式
-  const [viewMode, setViewMode] = useState<`grid` | `list`>(`grid`);
+  const { isLoggedIn, logout } = useAuth();
+  const [searchVal, setSearchVal] = useState("");
+  const [activeTab, setActiveTab] = useState("全部");
+  const [sortBy, setSortBy] = useState("最新");
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [showFilter, setShowFilter] = useState(false);
-  const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
   const [apiPosts, setApiPosts] = useState<ApiPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -104,9 +104,9 @@ const Explore = () => {
     return b.id - a.id;
   });
 
-  const handleLogout = () => {
-    localStorage.removeItem(`blog_logged_in`);
-    navigate(`/login`);
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login");
   };
 
   return (

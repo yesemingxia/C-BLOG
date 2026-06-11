@@ -6,6 +6,7 @@ import {
   Sun, Moon
 } from "lucide-react";
 import { useTheme } from "./ThemeProvider";
+import { useAuth } from "./AuthProvider";
 
 interface NavbarProps {
   isLoggedIn?: boolean;
@@ -13,7 +14,6 @@ interface NavbarProps {
   onLogin?: () => void;
 }
 
-// @cuiruoni+导航栏组件：固定顶部，包含Logo、导航链接、搜索、主题切换、用户菜单，支持移动端汉堡菜单
 const Navbar = ({
   isLoggedIn = true,
   onLogout = () => {},
@@ -22,37 +22,13 @@ const Navbar = ({
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark, toggleTheme } = useTheme();
-  // @cuiruoni+控制用户下拉菜单和移动端菜单的展开/收起
+  const { user } = useAuth();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [searchVal, setSearchVal] = useState("");
 
-  // @cuiruoni+从localStorage读取当前登录用户信息
-  const [userInfo, setUserInfo] = useState<{ username: string; email: string } | null>(() => {
-    try {
-      const raw = localStorage.getItem("blog_user");
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
-  });
-
-  useEffect(() => {
-    const sync = () => {
-      try {
-        const raw = localStorage.getItem("blog_user");
-        setUserInfo(raw ? JSON.parse(raw) : null);
-      } catch { setUserInfo(null); }
-    };
-    window.addEventListener("auth-change", sync);
-    window.addEventListener("storage", sync);
-    return () => {
-      window.removeEventListener("auth-change", sync);
-      window.removeEventListener("storage", sync);
-    };
-  }, []);
-
-  // @cuiruoni+用户名首字母缩写，用于头像显示
-  const initials = userInfo?.username
-    ? userInfo.username.slice(0, 2).toUpperCase()
+  const initials = user?.username
+    ? user.username.slice(0, 2).toUpperCase()
     : "U";
 
   // @cuiruoni+主导航链接配置，每个链接对应一个路由和图标
@@ -201,10 +177,10 @@ const Navbar = ({
                   {showUserMenu && (
                     <>
                       <div className="absolute right-0 top-12 w-56 bento-card p-2 z-[60] animate-in fade-in slide-in-from-top-2 duration-300">
-                        <div className="px-3 py-3 border-b border-white/5 mb-2">
-                          <div className="font-bold text-sm">{userInfo?.username ?? "User"}</div>
-                          <div className="text-xs text-foreground/40 truncate">{userInfo?.email ?? ""}</div>
-                        </div>
+                          <div className="px-3 py-3 border-b border-white/5 mb-2">
+                            <div className="font-bold text-sm">{user?.username ?? "User"}</div>
+                            <div className="text-xs text-foreground/40 truncate">{user?.email ?? ""}</div>
+                          </div>
                         <div className="space-y-1">
                           <button
                             onClick={() => { navigate(`/profile`); setShowUserMenu(false); }}

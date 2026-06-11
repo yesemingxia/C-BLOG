@@ -1,36 +1,53 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Heart, MessageCircle, Bookmark, Share2, ArrowLeft,
   Eye, Clock, ThumbsUp, Send, MoreHorizontal, Copy, Twitter, Link
 } from "lucide-react";
 import GlassBackground from "../components/GlassBackground";
 import Navbar from "../components/Navbar";
+import { useAuth } from "../components/AuthProvider";
 import { toast } from "sonner";
 import { commentsApi, postsApi, type ApiComment, type ApiPost } from "../lib/api";
 
-// @cuiruoni+文章详情页组件：阅读进度条+侧边操作栏+目录导航+评论系统，三栏布局
 const Post = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const queryClient = useQueryClient();
+  const { isLoggedIn, logout } = useAuth();
   const [liked, setLiked] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
-  // @cuiruoni+阅读进度：基于文章内容区域的滚动位置计算百分比
   const [progress, setProgress] = useState(0);
-  const [commentText, setCommentText] = useState(``);
+  const [commentText, setCommentText] = useState("");
   const [showShare, setShowShare] = useState(false);
-  const [post, setPost] = useState<ApiPost | null>(null);
-  const [comments, setComments] = useState<ApiComment[]>([]);
-  const [loading, setLoading] = useState(true);
   const contentRef = useRef<HTMLDivElement>(null);
-  const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
-  const postId = Number(searchParams.get(`id`) ?? 1);
+  const postId = Number(searchParams.get("id") ?? 1);
 
-  // @cuiruoni+从localStorage恢复点赞/收藏状态
+  const { data: post, isLoading: loadingPost } = useQuery({
+    queryKey: ["post", postId],
+    queryFn: () => postsApi.get(postId),
+  });
+
+  const { data: comments = [] } = useQuery({
+    queryKey: ["comments", postId],
+    queryFn: () => commentsApi.list(postId),
+  });
+
+  const commentMutation = useMutation({
+    mutationFn: (content: string) => commentsApi.create(postId, content),
+    onSuccess: (created) => {
+      queryClient.setQueryData<ApiComment[]>(["comments", postId], (old) => [...(old ?? []), created]);
+      setCommentText("");
+      toast.success("评论发布成功！");
+    },
+    onError: () => toast.error("评论发布失败，请稍后重试"),
+  });
+
   useEffect(() => {
     try {
-      const likedPosts = JSON.parse(localStorage.getItem(`blog_liked_posts`) || `[]`);
-      const bookmarkedPosts = JSON.parse(localStorage.getItem(`blog_bookmarked_posts`) || `[]`);
+      const likedPosts = JSON.parse(localStorage.getItem("blog_liked_posts") || "[]");
+      const bookmarkedPosts = JSON.parse(localStorage.getItem("blog_bookmarked_posts") || "[]");
       setLiked(likedPosts.includes(postId));
       setBookmarked(bookmarkedPosts.includes(postId));
     } catch { /* ignore */ }
@@ -40,10 +57,10 @@ const Post = () => {
     const next = !liked;
     setLiked(next);
     try {
-      const arr: number[] = JSON.parse(localStorage.getItem(`blog_liked_posts`) || `[]`);
+      const arr: number[] = JSON.parse(localStorage.getItem("blog_liked_posts") || "[]");
       if (next) { if (!arr.includes(postId)) arr.push(postId); }
       else { const idx = arr.indexOf(postId); if (idx >= 0) arr.splice(idx, 1); }
-      localStorage.setItem(`blog_liked_posts`, JSON.stringify(arr));
+      localStorage.setItem("blog_liked_posts", JSON.stringify(arr));
     } catch { /* ignore */ }
   };
 
@@ -51,14 +68,13 @@ const Post = () => {
     const next = !bookmarked;
     setBookmarked(next);
     try {
-      const arr: number[] = JSON.parse(localStorage.getItem(`blog_bookmarked_posts`) || `[]`);
+      const arr: number[] = JSON.parse(localStorage.getItem("blog_bookmarked_posts") || "[]");
       if (next) { if (!arr.includes(postId)) arr.push(postId); }
       else { const idx = arr.indexOf(postId); if (idx >= 0) arr.splice(idx, 1); }
-      localStorage.setItem(`blog_bookmarked_posts`, JSON.stringify(arr));
+      localStorage.setItem("blog_bookmarked_posts", JSON.stringify(arr));
     } catch { /* ignore */ }
   };
 
-  // @cuiruoni+滚动监听计算阅读进度：被动监听优化性能，卸载时移除监听
   useEffect(() => {
     const handleScroll = () => {
       const el = contentRef.current;
@@ -66,53 +82,31 @@ const Post = () => {
       const rect = el.getBoundingClientRect();
       const total = el.offsetHeight;
       const scrolled = Math.max(0, -rect.top);
-      const pct = Math.min(100, (scrolled / total) * 100);
-      setProgress(pct);
+      setProgress(Math.min(100, (scrolled / total) * 100));
     };
-    window.addEventListener(`scroll`, handleScroll, { passive: true });
-    return () => window.removeEventListener(`scroll`, handleScroll);
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
-
-  useEffect(() => {
-    const loadPost = async () => {
-      setLoading(true);
-      const [postData, commentData] = await Promise.all([
-        postsApi.get(postId),
-        commentsApi.list(postId),
-      ]);
-      setPost(postData);
-      setComments(commentData);
-      setLoading(false);
-    };
-    loadPost();
-  }, [postId]);
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(window.location.href);
-    toast.success(`链接已复制！`);
+    toast.success("链接已复制！");
     setShowShare(false);
   };
 
-  const handleComment = async (e: React.FormEvent) => {
+  const handleComment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!commentText.trim()) return;
-    const created = await commentsApi.create(postId, commentText.trim());
-    if (!created) {
-      toast.error(`评论发布失败，请稍后重试`);
-      return;
-    }
-    setComments((prev) => [...prev, created]);
-    setCommentText(``);
-    toast.success(`评论发布成功！`);
+    commentMutation.mutate(commentText.trim());
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem(`blog_logged_in`);
-    navigate(`/login`);
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login");
   };
 
-  const articleTitle = post?.title ?? `加载中...`;
-  const articleContent = post?.content_html ?? post?.content_md ?? ``;
+  const articleTitle = post?.title ?? "加载中...";
+  const articleContent = post?.content_html ?? post?.content_md ?? "";
 
   // @cuiruoni+从content_html中提取标题生成目录，并给标题注入id用于锚点滚动
   const toc = (() => {
@@ -178,7 +172,7 @@ const Post = () => {
                   >
                     <Heart size={18} style={{ color: liked ? `#f472b6` : `rgba(232,234,246,0.6)` }} fill={liked ? `#f472b6` : `none`} />
                   </div>
-                  <span className="text-xs" style={{ color: `rgba(232,234,246,0.4)` }}>{liked ? 249 : 248}</span>
+                  <span className="text-xs" style={{ color: "rgba(232,234,246,0.4)" }}>{(post?.likes ?? 0) + (liked ? 1 : 0)}</span>
                 </button>
 
                 <button className="flex flex-col items-center gap-1">
@@ -247,9 +241,8 @@ const Post = () => {
             <div className="flex-1 min-w-0">
               {/* Back btn */}
               <button
-                onClick={() => navigate(`/`)}
-                className="flex items-center gap-2 text-sm mb-6 transition-colors"
-                style={{ color: `rgba(232,234,246,0.5)` }}
+                onClick={() => navigate("/home")}
+                className="flex items-center gap-2 text-sm mb-6 text-foreground/50 hover:text-foreground transition-colors"
               >
                 <ArrowLeft size={16} />
                 返回首页
@@ -264,7 +257,7 @@ const Post = () => {
                 </div>
 
                 <h1 className="text-3xl font-black text-foreground leading-tight mb-4">
-                  {loading ? `加载中...` : articleTitle}
+                  {loadingPost ? "加载中..." : articleTitle}
                 </h1>
 
                 <div className="flex items-center justify-between flex-wrap gap-4 mb-6">
@@ -313,8 +306,8 @@ const Post = () => {
               {/* Article content */}
               <div ref={contentRef} className="glass-card p-8 mb-8">
                 <div className="prose max-w-none">
-                  {loading ? (
-                    <div className="text-center py-12" style={{ color: `rgba(232,234,246,0.4)` }}>
+                  {loadingPost ? (
+                    <div className="text-center py-12" style={{ color: "rgba(232,234,246,0.4)" }}>
                       加载中...
                     </div>
                   ) : articleContent ? (
@@ -337,8 +330,8 @@ const Post = () => {
                   className="flex items-center gap-2 text-sm"
                   style={{ color: liked ? `#f472b6` : `rgba(232,234,246,0.6)` }}
                 >
-                  <Heart size={18} fill={liked ? `#f472b6` : `none`} />
-                  {liked ? 249 : 248}
+                  <Heart size={18} fill={liked ? "#f472b6" : "none"} />
+                  {(post?.likes ?? 0) + (liked ? 1 : 0)}
                 </button>
                 <button className="flex items-center gap-2 text-sm" style={{ color: `rgba(232,234,246,0.6)` }}>
                   <MessageCircle size={18} />{displayComments.length}

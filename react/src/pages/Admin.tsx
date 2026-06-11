@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import GlassBackground from "../components/GlassBackground";
+import { useAuth } from "../components/AuthProvider";
 import { adminApi, type AdminStats, type AdminUser, type AdminComment } from "../lib/api";
 import type { ApiPost } from "../lib/api";
 
@@ -690,6 +691,7 @@ const SidebarContent = ({
 // @cuiruoni+管理后台主组件：左侧导航栏+右侧内容区，4个功能Tab
 const Admin = () => {
   const navigate = useNavigate();
+  const { logout } = useAuth();
   const [activeTab, setActiveTab] = useState("dashboard");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -763,51 +765,49 @@ const Admin = () => {
   // @cuiruoni+操作处理函数
   const handleToggleRole = useCallback(async (user: AdminUser) => {
     const newRole = user.role === "admin" ? "user" : "admin";
-    const ok = await adminApi.updateUserRole(user.id, newRole);
-    if (ok) {
+    try {
+      await adminApi.updateUserRole(user.id, newRole);
       setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, role: newRole } : u)));
       toast.success(`已将 ${user.username} 角色更改为 ${newRole === "admin" ? "管理员" : "普通用户"}`);
-    } else {
+    } catch {
       toast.error("角色更新失败");
     }
   }, []);
 
   const handleDeleteUser = useCallback(async (id: number) => {
-    const ok = await adminApi.deleteUser(id);
-    if (ok) {
+    try {
+      await adminApi.deleteUser(id);
       setUsers((prev) => prev.filter((u) => u.id !== id));
       toast.success("用户已删除");
-    } else {
+    } catch {
       toast.error("删除失败");
     }
   }, []);
 
   const handleDeletePost = useCallback(async (id: number) => {
-    const ok = await adminApi.deletePost(id);
-    if (ok) {
+    try {
+      await adminApi.deletePost(id);
       setPosts((prev) => prev.filter((p) => p.id !== id));
       toast.success("文章已删除");
-    } else {
+    } catch {
       toast.error("删除失败");
     }
   }, []);
 
   const handleDeleteComment = useCallback(async (id: number) => {
-    const ok = await adminApi.deleteComment(id);
-    if (ok) {
+    try {
+      await adminApi.deleteComment(id);
       setComments((prev) => prev.filter((c) => c.id !== id));
       toast.success("评论已删除");
-    } else {
+    } catch {
       toast.error("删除失败");
     }
   }, []);
 
-  const handleLogout = useCallback(() => {
-    localStorage.removeItem("blog_logged_in");
-    localStorage.removeItem("blog_token");
-    localStorage.removeItem("blog_user");
+  const handleLogout = useCallback(async () => {
+    await logout();
     navigate("/login");
-  }, [navigate]);
+  }, [logout, navigate]);
 
   const handleToggleCollapse = useCallback(() => {
     setSidebarCollapsed((prev) => !prev);

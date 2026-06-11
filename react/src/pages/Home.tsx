@@ -195,16 +195,17 @@ const ContactForm = () => {
     const msgOk = validate("message", form.message);
     if (nameOk && emailOk && msgOk) {
       setSubmitting(true);
-      const success = await contactApi.send(form.name, form.email, form.message);
-      setSubmitting(false);
-      if (success) {
+      try {
+        await contactApi.send(form.name, form.email, form.message);
         setSent(true);
         setTimeout(() => setSent(false), 4000);
         setForm({ name: "", email: "", message: "" });
         setErrors({});
-      } else {
+      } catch {
         setSendError(true);
         setTimeout(() => setSendError(false), 4000);
+      } finally {
+        setSubmitting(false);
       }
     }
   };

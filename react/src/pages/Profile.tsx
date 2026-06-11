@@ -7,7 +7,8 @@ import {
 import BlogCard, { BlogPost } from "../components/BlogCard";
 import GlassBackground from "../components/GlassBackground";
 import Navbar from "../components/Navbar";
-import { profileApi, type UserProfile } from "../lib/api";
+import { useAuth } from "../components/AuthProvider";
+import { profileApi, type UserProfile, type ApiPost } from "../lib/api";
 
 const tabOptions = [`我的文章`, `收藏`, `喜欢的`];
 
@@ -15,45 +16,47 @@ const tabOptions = [`我的文章`, `收藏`, `喜欢的`];
 const Profile = () => {
   const navigate = useNavigate();
   const { username: routeUsername } = useParams<{ username?: string }>();
-  const [activeTab, setActiveTab] = useState(`我的文章`);
+  const { isLoggedIn, user, logout } = useAuth();
+  const [activeTab, setActiveTab] = useState("我的文章");
   const [following, setFollowing] = useState(false);
-  const [isLoggedIn] = useState(() => !!localStorage.getItem(`blog_logged_in`));
   const [profile, setProfile] = useState<(UserProfile & { posts: BlogPost[] }) | null>(null);
   const [loading, setLoading] = useState(true);
-  const isOwn = isLoggedIn && (!routeUsername || routeUsername === (JSON.parse(localStorage.getItem(`blog_user`) || `{}`) as { username?: string }).username);
+  const isOwn = isLoggedIn && (!routeUsername || routeUsername === user?.username);
 
   // @cuiruoni+从后端API加载用户公开资料
   useEffect(() => {
     const loadProfile = async () => {
       setLoading(true);
-      const uname = routeUsername || (JSON.parse(localStorage.getItem(`blog_user`) || `{}`) as { username?: string }).username || ``;
+      const uname = routeUsername || user?.username || "";
       if (!uname) { setLoading(false); return; }
-      const data = await profileApi.getPublicProfile(uname);
-      if (data) {
-        const posts: BlogPost[] = (data.posts || []).map((p: any) => ({
-          id: p.id,
-          title: p.title,
-          excerpt: p.excerpt ?? ``,
-          cover: p.cover ?? ``,
-          author: data.username,
-          authorAvatar: data.username.slice(0, 2).toUpperCase(),
-          date: p.created_at?.slice(0, 10) ?? ``,
-          readTime: 5,
-          likes: p.like_count ?? 0,
-          comments: p.comment_count ?? 0,
-          views: p.view_count ?? 0,
-          tags: [],
-        }));
-        setProfile({ ...data, posts });
-      }
+      try {
+        const data = await profileApi.getPublicProfile(uname);
+        if (data) {
+          const posts: BlogPost[] = (data.posts || []).map((p: ApiPost) => ({
+            id: p.id,
+            title: p.title,
+            excerpt: p.excerpt ?? "",
+            cover: p.cover ?? "",
+            author: data.username,
+            authorAvatar: data.username.slice(0, 2).toUpperCase(),
+            date: p.created_at?.slice(0, 10) ?? "",
+            readTime: 5,
+            likes: p.likes ?? 0,
+            comments: p.comments_count ?? 0,
+            views: p.view_count ?? 0,
+            tags: [],
+          }));
+          setProfile({ ...data, posts });
+        }
+      } catch { /* ignore */ }
       setLoading(false);
     };
     loadProfile();
-  }, [routeUsername]);
+  }, [routeUsername, user]);
 
-  const handleLogout = () => {
-    localStorage.removeItem(`blog_logged_in`);
-    navigate(`/login`);
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login");
   };
 
   const displayPosts = profile?.posts ?? [];
