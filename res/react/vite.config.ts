@@ -84,7 +84,7 @@ export default defineConfig({
       typescript: {
         tsconfigPath: "tsconfig.app.json",
       },
-      enableBuild: false,
+      enableBuild: true,
     }),
   ],
   // @cuiruoni+路径别名：@映射到src目录，简化导入路径

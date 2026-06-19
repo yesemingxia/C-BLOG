@@ -40,20 +40,14 @@ set(Boost_NO_WARN_NEW_VERSION ON)
 # Beast 是 header-only，只需头文件路径，不需要链接
 # 需要链接的模块：system filesystem thread program_options json
 # ============================================================================  
-if(DEFINED ENV{BOOST_ROOT} AND EXISTS "$ENV{BOOST_ROOT}")
+if(DEFINED ENV{BOOST_ROOT})
     set(BOOST_ROOT "$ENV{BOOST_ROOT}")
-elseif(EXISTS "D:/boost_1_88_0")
+else()
     set(BOOST_ROOT "D:/boost_1_88_0")
 endif()
-
-if(BOOST_ROOT)
-    set(Boost_NO_SYSTEM_PATHS ON)
-    set(Boost_DIR "${BOOST_ROOT}/stage/lib/cmake/Boost-1.88.0" CACHE PATH "Boost cmake config directory")
-else()
-    set(Boost_NO_SYSTEM_PATHS OFF)
-endif()
-
-find_package(Boost 1.75 REQUIRED COMPONENTS
+set(Boost_NO_SYSTEM_PATHS ON)
+set(Boost_DIR "${BOOST_ROOT}/stage/lib/cmake/Boost-1.88.0" CACHE PATH "Boost cmake config directory")
+find_package(Boost 1.88 REQUIRED COMPONENTS
     system filesystem thread program_options json
 )
 
