@@ -217,8 +217,9 @@ static http::response<http::string_body> handle_get_profile(
     const http::request<http::string_body>& req, const RouteParams& params) {
     std::string auth_field(req[http::field::authorization]);
     if (auth_field.empty() || auth_field.substr(0, 7) != "Bearer ") {
-        http::response<http::string_body> res{http::status::unauthorized, req.version()};
-        res.body() = response::error(401, "Authentication required");
+        // @cuiruoni+未登录时返回空数据，方便前端判断登录状态而不报错
+        http::response<http::string_body> res{http::status::ok, req.version()};
+        res.body() = response::success(json::value(nullptr));
         res.prepare_payload();
         return res;
     }
@@ -227,8 +228,8 @@ static http::response<http::string_body> handle_get_profile(
     int64_t user_id = 0;
     std::string username, role;
     if (!auth_service::validate_token(token, user_id, username, role)) {
-        http::response<http::string_body> res{http::status::unauthorized, req.version()};
-        res.body() = response::error(401, "Invalid or expired token");
+        http::response<http::string_body> res{http::status::ok, req.version()};
+        res.body() = response::success(json::value(nullptr));
         res.prepare_payload();
         return res;
     }

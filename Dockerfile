@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN git clone --depth 1 https://github.com/microsoft/vcpkg.git /opt/vcpkg \
     && /opt/vcpkg/bootstrap-vcpkg.sh -disableMetrics \
     && /opt/vcpkg/vcpkg install \
-        jwt-cpp cmark unofficial-mysql-connector-cpp \
+        jwt-cpp cmark mysql-connector-cpp \
         --triplet x64-linux \
     && rm -rf /opt/vcpkg/buildtrees /opt/vcpkg/downloads
 
@@ -63,9 +63,9 @@ CMD ["./blog", "-c", "config/config.json"]
 FROM node:20-alpine AS frontend-builder
 
 WORKDIR /build
-COPY react/package.json react/package-lock.json* ./
+COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci
-COPY react/ .
+COPY frontend/ .
 RUN npm run build
 
 # @cuiruoni+前端产物在 /build/dist，由 Nginx 或后端静态文件服务提供

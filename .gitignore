@@ -1,34 +1,104 @@
-# 编译产生的文件
+# 编译产物 / Build outputs
 build/
 build-clangd/
+out/
+x64/
+Debug/
+Release/
+
+# C/C++
 *.exe
 *.obj
+*.o
+*.a
 *.lib
+*.so
 *.dll
+*.exp
 *.pdb
 *.ilk
-*.pdb
-*.exp
-*.log
-*.tlog
-*.lastbuildstate
-*.vcxproj
-*.vcxproj.filters
-*.sln
+*.idb
+
+# CMake
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 compile_commands.json
+CTestTestfile.cmake
+Makefile
 
-# Markdown 文件
+# Visual Studio
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.suo
+*.user
+*.userosscache
+*.sdf
+*.opensdf
+.vs/
+
+# 前端依赖与构建 / Frontend deps and build
+node_modules/
+frontend/dist/
+source/frontend-source/node_modules/
+source/frontend-source/dist/
+source/frontend-source/auto-imports.d.ts
+source/frontend-source/components.d.ts
+
+# 前端日志与缓存
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log*
+*.log
+*.tlog
+*.lastbuildstate
+
+# 包管理器锁文件（按项目约定保留其一即可）
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lock
+
+# 本地配置 / 敏感信息 / Local and sensitive configs
+config/config.json
+config/config.local.json
+config/config.*.local.json
+.env
+.env.local
+.env.*.local
+
+# Markdown 文档（如果不需要提交）
 *.md
 
-# 敏感配置文件（含密码/密钥）
-config/config.json
-
-# IDE/工具文件
+# IDE / 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .clangd
 
-# 依赖锁文件
-package-lock.json
-bun.lock
+# 操作系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 数据库与运行时数据
+mysql_data/
+redis_data/
+*.db
+*.sqlite
+*.sqlite3
+
+# 压缩包 / 临时文件
+*.zip
+*.tar.gz
+*.tar
+*.rar
+*.7z
+tmp/
+temp/

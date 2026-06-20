@@ -1,0 +1,288 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ── Font: Space Grotesk is loaded via <link> in index.html ── */
+
+@theme inline {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-border: var(--border);
+  --color-card: var(--card);
+}
+
+:root {
+  --radius: 0.75rem;
+  --background: #f8fafc;
+  --background-rgb: 248, 250, 252;
+  --foreground: #0f172a;
+  --foreground-rgb: 15, 23, 42;
+  --primary: #6366f1;
+  --border: rgba(203, 213, 225, 0.8);
+  --card: rgba(255, 255, 255, 0.85);
+  --glass-bg: rgba(255, 255, 255, 0.78);
+  --glass-border: rgba(226, 232, 240, 0.9);
+  --glass-blur: 16px;
+  --selection: rgba(99, 102, 241, 0.15);
+  --neon-blue: #0ea5e9;
+  --neon-purple: #6366f1;
+  --bento-radius: 20px;
+}
+
+/* 仅保留浅色主题，移除了evening/night深色块，避免默认黑/暗色背景 */
+
+@layer base {
+  body {
+    @apply bg-background text-foreground font-sans antialiased selection:bg-[var(--selection)];
+    transition: background-color 0.8s cubic-bezier(0.4, 0, 0.2, 1), color 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Accessible focus outlines */
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+@layer utilities {
+  /* ── Bento card: glassmorphism with subtle depth ── */
+  .bento-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    border-radius: var(--bento-radius);
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.04),
+      0 8px 24px -4px rgba(0, 0, 0, 0.08);
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease, border-color 0.3s ease;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .bento-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, rgba(124, 106, 255, 0.25), rgba(56, 189, 248, 0.08), transparent);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .bento-card:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 12px 40px -6px rgba(0, 0, 0, 0.12),
+      0 0 0 1px rgba(124, 106, 255, 0.12);
+  }
+
+  .bento-card:hover::before {
+    opacity: 1;
+  }
+
+  /* Legacy alias */
+  .glass-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-xl);
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.04),
+      0 8px 24px -4px rgba(0, 0, 0, 0.08);
+    transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+  }
+
+  .glass-card:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 12px 40px -6px rgba(0, 0, 0, 0.12),
+      0 0 0 1px rgba(124, 106, 255, 0.12);
+    border-color: var(--primary);
+  }
+
+  .glass-input {
+    background: var(--card);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--glass-border);
+    color: var(--foreground);
+    transition: all 0.2s ease;
+  }
+
+  .glass-input::placeholder {
+    color: rgba(var(--foreground-rgb, 15, 23, 42), 0.35);
+  }
+
+  .glass-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 4px var(--selection);
+    outline: none;
+  }
+
+  .gradient-text {
+    @apply font-bold bg-clip-text text-transparent bg-linear-to-r from-[var(--neon-purple)] to-[var(--neon-blue)];
+  }
+
+  .btn-primary-glass {
+    @apply relative overflow-hidden transition-all duration-200;
+    background: linear-gradient(135deg, var(--neon-purple), var(--neon-blue));
+    box-shadow: 0 4px 14px -2px rgba(99, 102, 241, 0.35);
+  }
+
+  .btn-primary-glass:hover {
+    @apply -translate-y-0.5 shadow-lg;
+    filter: brightness(1.08);
+  }
+
+  .btn-primary-glass:active {
+    transform: translateY(0);
+  }
+
+  .btn-ghost-glass {
+    @apply backdrop-blur-md border transition-all;
+    background: rgba(var(--foreground-rgb, 15, 23, 42), 0.03);
+    border-color: rgba(var(--foreground-rgb, 15, 23, 42), 0.08);
+    color: var(--foreground);
+  }
+
+  .btn-ghost-glass:hover {
+    background: rgba(var(--foreground-rgb, 15, 23, 42), 0.07);
+    border-color: rgba(var(--foreground-rgb, 15, 23, 42), 0.14);
+  }
+
+  .dark .btn-ghost-glass {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .dark .btn-ghost-glass:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.16);
+  }
+
+  .tag-glass {
+    @apply px-3 py-1 rounded-full text-xs font-medium backdrop-blur-md transition-all;
+    background: rgba(99, 102, 241, 0.1);
+    border: 1px solid rgba(99, 102, 241, 0.18);
+    color: var(--primary);
+  }
+
+  .tag-glass:hover {
+    background: rgba(99, 102, 241, 0.18);
+  }
+
+  /* ── Typing cursor blink ── */
+  .typing-cursor::after {
+    content: '|';
+    animation: blink 1s step-end infinite;
+    color: var(--neon-blue);
+    font-weight: 100;
+    margin-left: 2px;
+  }
+
+  /* ── Tech stack marquee ── */
+  .marquee-track {
+    display: flex;
+    width: max-content;
+    animation: marquee 30s linear infinite;
+  }
+
+  .marquee-track:hover {
+    animation-play-state: paused;
+  }
+
+  /* ── Neon glow utility ── */
+  .neon-glow {
+    text-shadow:
+      0 0 7px rgba(124, 106, 255, 0.6),
+      0 0 20px rgba(124, 106, 255, 0.3),
+      0 0 40px rgba(56, 189, 248, 0.15);
+  }
+
+  .neon-border-glow {
+    box-shadow:
+      0 0 5px rgba(124, 106, 255, 0.3),
+      0 0 15px rgba(124, 106, 255, 0.15),
+      inset 0 0 5px rgba(124, 106, 255, 0.05);
+  }
+}
+
+/* ── Vignette: 使用当前主题色生成暗角，避免浅色模式下出现违和的黑色暗角 ── */
+.vignette {
+  background: radial-gradient(circle at 50% 50%, transparent 0%, rgba(var(--foreground-rgb), 0.06) 100%);
+}
+
+.dark .vignette {
+  background: radial-gradient(circle at 50% 50%, transparent 0%, rgba(5, 8, 22, 0.35) 100%);
+}
+
+/* ── Keyframes ── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes slide-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(124, 106, 255, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(124, 106, 255, 0.6);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 3s infinite ease-in-out;
+}
+
+/* ── Reduced motion: fallback static layout ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .bento-card:hover {
+    transform: none;
+  }
+
+  .glass-card:hover {
+    transform: none;
+  }
+
+  .marquee-track {
+    animation: none;
+  }
+}

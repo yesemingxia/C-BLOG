@@ -66,6 +66,8 @@ MiddlewareFunc create_path_protected_auth_middleware() {
         if (method == "GET") {
             // @cuiruoni+文章列表和详情公开
             if (path == "/api/posts" || path.find("/api/posts/") == 0) return true;
+            // @cuiruoni+当前用户资料（未登录时返回空，由controller处理）
+            if (path == "/api/users/profile") return true;
             // @cuiruoni+用户公开资料公开
             if (path.find("/api/users/") == 0 && path.find("/api/users/profile") != 0) return true;
             // @cuiruoni+标签和搜索公开
