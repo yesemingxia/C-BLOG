@@ -1,21 +1,28 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   User, Bell, Shield, Palette, Globe,
-  ChevronRight, Camera, Check, LogOut, Trash2, Mail, Lock, Eye, EyeOff
+  ChevronRight, Camera, Check, LogOut, Trash2, Mail, Lock, Eye, EyeOff,
+  Image as ImageIcon, Wand2, Loader2, X
 } from "lucide-react";
 import GlassBackground from "../components/layout/GlassBackground";
 import Navbar from "../components/layout/Navbar";
 import { useAuth } from "../components/auth/AuthProvider";
+import { useTheme } from "../components/theme/ThemeProvider";
 import { toast } from "sonner";
-import { profileApi, type UserProfile } from "../lib/api";
+import { profileApi, styleApi, backgroundApi, type UserProfile, type StyleOption, type BackgroundSettingInfo } from "../lib/api";
+import {
+  loadBackground, saveBackground, clearBackground, urlToDataUrl,
+  type BackgroundSetting,
+} from "../lib/background";
 
 const settingsSections = [
-  { key: `profile`, label: `个人资料`, icon: User, color: `#7c6aff` },
-  { key: `notifications`, label: `通知偏好`, icon: Bell, color: `#38bdf8` },
-  { key: `privacy`, label: `隐私与安全`, icon: Shield, color: `#34d399` },
-  { key: `appearance`, label: `外观设置`, icon: Palette, color: `#f472b6` },
-  { key: `account`, label: `账号管理`, icon: Globe, color: `#f59e0b` },
+  { key: `profile`, label: `个人资料`, icon: User },
+  { key: `notifications`, label: `通知偏好`, icon: Bell },
+  { key: `privacy`, label: `隐私与安全`, icon: Shield },
+  { key: `appearance`, label: `外观设置`, icon: Palette },
+  { key: `background`, label: `背景设置`, icon: ImageIcon },
+  { key: `account`, label: `账号管理`, icon: Globe },
 ];
 
 const notifOptions = [
@@ -24,14 +31,6 @@ const notifOptions = [
   { key: `follows`, label: `关注通知`, desc: `有新粉丝时通知你` },
   { key: `mentions`, label: `提及通知`, desc: `在评论中被提及时通知你` },
   { key: `newsletter`, label: `每周精选`, desc: `每周推送精选文章摘要` },
-];
-
-const themeAccents = [
-  { label: `紫色`, color: `#7c6aff` },
-  { label: `青蓝`, color: `#38bdf8` },
-  { label: `粉红`, color: `#f472b6` },
-  { label: `橙金`, color: `#f59e0b` },
-  { label: `翠绿`, color: `#34d399` },
 ];
 
 // @cuiruoni+设置页组件：5个设置分区（资料/通知/隐私/外观/账号），左侧导航+右侧内容布局
@@ -58,6 +57,8 @@ const Settings = () => {
       setProfileLoading(true);
       try {
         const profile = await profileApi.get();
+        // @cuiruoni+P2修复：未登录时接口返回null，直接跳过
+        if (!profile) return;
         setName(profile.username);
         setBio(profile.bio);
         setLocation(profile.location);
@@ -82,17 +83,30 @@ const Settings = () => {
     }
   });
 
-  // Privacy
-  const [profilePublic, setProfilePublic] = useState(true);
-  const [showEmail, setShowEmail] = useState(false);
+  // @cuiruoni+P2修复：隐私开关持久化到localStorage
+  const [profilePublic, setProfilePublic] = useState(() => localStorage.getItem("blog_privacy_public") !== "0");
+  const [showEmail, setShowEmail] = useState(() => localStorage.getItem("blog_privacy_email") === "1");
+
+  useEffect(() => {
+    localStorage.setItem("blog_privacy_public", profilePublic ? "1" : "0");
+  }, [profilePublic]);
+
+  useEffect(() => {
+    localStorage.setItem("blog_privacy_email", showEmail ? "1" : "0");
+  }, [showEmail]);
 
   // Password
   const [showPass, setShowPass] = useState(false);
   const [newPass, setNewPass] = useState(``);
 
-  // Appearance
-  const [selectedAccent, setSelectedAccent] = useState(`#7c6aff`);
-  const [fontSize, setFontSize] = useState(`medium`);
+  // @cuiruoni+P2修复：正文字号真实生效并持久化
+  const [fontSize, setFontSize] = useState(() => localStorage.getItem("blog_font_size") || "medium");
+
+  useEffect(() => {
+    const sizeMap: Record<string, string> = { small: "15px", medium: "16px", large: "18px" };
+    document.documentElement.style.fontSize = sizeMap[fontSize] ?? "16px";
+    localStorage.setItem("blog_font_size", fontSize);
+  }, [fontSize]);
 
   const handleSaveProfile = async () => {
     setSavingProfile(true);
@@ -137,6 +151,202 @@ const Settings = () => {
     navigate("/login");
   };
 
+  // ============ 背景设置（图片只存本机，服务器只留存配置信息） ============
+  const [bgSetting, setBgSetting] = useState<BackgroundSetting | null>(() => loadBackground());
+  const [bgPreview, setBgPreview] = useState<string | null>(null);
+  const [bgStyleId, setBgStyleId] = useState("gathered");
+  const [bgGenerating, setBgGenerating] = useState(false);
+  const [styles, setStyles] = useState<StyleOption[]>([]);
+  const [serverBg, setServerBg] = useState<BackgroundSettingInfo | null>(null);
+
+  // @cuiruoni+组件卸载标记：异步轮询/压缩回调据此停止，防止对已卸载组件 setState
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    styleApi.listStyles().then(setStyles).catch(() => {});
+    backgroundApi.get().then((r) => setServerBg(r.background)).catch(() => {});
+  }, []);
+
+  const syncBgToServer = async (setting: BackgroundSetting) => {
+    try {
+      await backgroundApi.save({
+        type: setting.type,
+        style_id: setting.style_id,
+        image_url: setting.image_url,
+      });
+    } catch {
+      toast.error("服务器留存失败（请确认已登录）");
+    }
+  };
+
+  const applyBg = (setting: BackgroundSetting) => {
+    const ok = saveBackground(setting);
+    if (!ok) {
+      toast.error("本地存储空间不足，无法保存背景");
+      return;
+    }
+    setBgSetting(setting);
+    void syncBgToServer(setting);
+    toast.success("背景已应用");
+  };
+
+  const removeBg = () => {
+    clearBackground();
+    setBgSetting(null);
+    setBgPreview(null);
+    void syncBgToServer({ type: "none" });
+    toast.success("背景已移除");
+  };
+
+  // @cuiruoni+canvas 压缩图片：等比缩放到最长边 1920，并逐步降质至 1.5MB 内，
+  // @cuiruoni+避免超出 localStorage 配额（约 5MB）
+  const compressImage = (dataUrl: string, mime: string, maxBytes = 1.5 * 1024 * 1024): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 1920;
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const scale = maxDim / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("无法处理图片"));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // @cuiruoni+检测是否含透明通道（PNG 透明转 JPEG 会变黑，须保留 alpha 格式）
+        let hasAlpha = false;
+        try {
+          const pixel = ctx.getImageData(0, 0, width, height).data;
+          for (let i = 3; i < pixel.length; i += 4) {
+            if (pixel[i] < 250) {
+              hasAlpha = true;
+              break;
+            }
+          }
+        } catch {
+          hasAlpha = false; // @cuiruoni+跨域等场景读不到像素，按无透明处理
+        }
+
+        // @cuiruoni+透明图用 WebP（支持 alpha + 有损压缩），不透明图用 JPEG；
+        // @cuiruoni+两者都失败（旧浏览器）时回退 PNG。base64 长度 ≈ 字节数 × 1.34
+        const formats: string[] = hasAlpha ? ["image/webp", "image/png"] : ["image/jpeg", "image/png"];
+        let out = "";
+        for (const fmt of formats) {
+          if (out) break;
+          let quality = 0.85;
+          let candidate = "";
+          do {
+            try {
+              candidate = canvas.toDataURL(fmt, quality);
+            } catch {
+              candidate = "";
+              break; // @cuiruoni+浏览器不支持该编码格式
+            }
+            if (candidate.startsWith("data:image/")) {
+              out = candidate;
+            } else {
+              candidate = "";
+              break;
+            }
+            quality -= 0.15;
+          } while (candidate.length > maxBytes * 1.34 && quality > 0.3);
+          if (!out && fmt === "image/png") {
+            // @cuiruoni+PNG 为最终回退：仅缩放不降质
+            try {
+              const png = canvas.toDataURL("image/png");
+              if (png.startsWith("data:image/png")) out = png;
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+        resolve(out || dataUrl);
+      };
+      img.onerror = () => reject(new Error("图片解析失败"));
+      img.src = dataUrl;
+    });
+
+  const handleBgFile = (file: File | null | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("请选择图片文件");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("图片不能超过 10MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = reader.result as string;
+      try {
+        const compressed = await compressImage(dataUrl, file.type);
+        setBgPreview(compressed);
+      } catch {
+        // @cuiruoni+压缩失败退回原图（小图也能直接存下）
+        setBgPreview(dataUrl);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  // @cuiruoni+AI 风格化背景：上传图 → 后端生成 → 结果图下载为 dataURL 存本机 → 应用
+  const generateBg = async () => {
+    if (!bgPreview) {
+      toast.error("请先选择图片");
+      return;
+    }
+    setBgGenerating(true);
+    try {
+      const comma = bgPreview.indexOf(",");
+      const base64 = comma >= 0 ? bgPreview.slice(comma + 1) : "";
+      const mime = bgPreview.startsWith("data:")
+        ? bgPreview.slice(5, bgPreview.indexOf(";"))
+        : "image/png";
+      const res = await styleApi.transfer(bgStyleId, base64, mime);
+      toast.success("任务已提交，AI 正在绘制...");
+      for (let i = 0; i < 120; i++) {
+        // @cuiruoni+组件卸载后停止轮询，避免对已卸载组件 setState
+        if (!mountedRef.current) return;
+        await sleep(3000);
+        if (!mountedRef.current) return;
+        const task = await styleApi.getTask(res.task_id);
+        if (task.status === "done" && task.result_url) {
+          const dataUrl = await urlToDataUrl(task.result_url);
+          if (!mountedRef.current) return;
+          applyBg({ type: "style", style_id: bgStyleId, source: dataUrl });
+          setBgPreview(null);
+          toast.success("风格化背景已生成并应用");
+          return;
+        }
+        if (task.status === "failed") {
+          toast.error(task.error || "生成失败，请重试");
+          return;
+        }
+      }
+      toast.error("生成超时，请重试");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "生成失败");
+    } finally {
+      setBgGenerating(false);
+    }
+  };
+
   // 危险操作：删除账号需要二次确认，当前仅作提示占位，无实际API调用
   const handleDeleteAccount = () => {
     const confirmed = window.confirm(`确定要删除账号吗？此操作不可恢复，所有数据将被清除。`);
@@ -147,45 +357,43 @@ const Settings = () => {
 
   return (
     <div data-cmp="Settings" className="min-h-screen relative">
-      <GlassBackground showParticles={false} />
+      <GlassBackground />
       <Navbar isLoggedIn={isLoggedIn} onLogout={handleLogout} onLogin={() => navigate(`/login`)} />
 
       <div className="relative z-10" style={{ paddingTop: 64 }}>
         <div className="mx-auto px-6 py-10" style={{ maxWidth: 1440 }}>
-          <h1 className="text-2xl font-black text-foreground mb-8">⚙️ 设置</h1>
+          <h1 className="text-2xl font-black text-[var(--foreground)] mb-8">设置</h1>
 
           <div className="flex gap-8">
             {/* Left nav */}
             <div className="flex-shrink-0" style={{ width: 240 }}>
-              <div className="glass-card p-3 sticky" style={{ top: 88 }}>
+              <div className="card p-3 sticky" style={{ top: 88 }}>
                 {settingsSections.map((section) => (
                   <button
                     key={section.key}
                     onClick={() => setActiveSection(section.key)}
-                    className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium transition-all"
-                    style={{
-                      background: activeSection === section.key ? `rgba(124,106,255,0.12)` : `transparent`,
-                      color: activeSection === section.key ? `var(--primary)` : `rgba(var(--foreground-rgb), 0.65)`,
-                    }}
+                    className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                      activeSection === section.key
+                        ? "bg-[var(--brand-subtle)] text-[var(--foreground)]"
+                        : "text-[var(--muted-foreground)]"
+                    }`}
                   >
                     <div className="flex items-center gap-3">
                       <div
-                        className="w-7 h-7 rounded-lg flex items-center justify-center"
-                        style={{ background: `${section.color}18` }}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center bg-[var(--muted)] text-[var(--muted-foreground)]"
                       >
-                        <section.icon size={14} style={{ color: section.color }} />
+                        <section.icon size={14} />
                       </div>
                       {section.label}
                     </div>
-                    <ChevronRight size={14} style={{ opacity: 0.4 }} />
+                    <ChevronRight size={14} className="opacity-40" />
                   </button>
                 ))}
 
-                <div className="mt-4 pt-4" style={{ borderTop: `1px solid rgba(var(--foreground-rgb), 0.06)` }}>
+                <div className="mt-4 pt-4 border-t border-[var(--border)]">
                   <button
                     onClick={handleLogout}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm transition-all hover:bg-foreground/5"
-                    style={{ color: `rgba(244,114,182,0.7)` }}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm transition-all hover:bg-[var(--brand-subtle)] text-[var(--muted-foreground)]"
                   >
                     <LogOut size={14} />
                     退出登录
@@ -198,8 +406,8 @@ const Settings = () => {
             <div className="flex-1 min-w-0">
               {/* Profile Section */}
               <div className={activeSection === `profile` ? `` : `hidden`}>
-                <div className="glass-card p-7 mb-6">
-                  <h2 className="text-lg font-bold text-foreground mb-6">个人资料</h2>
+                <div className="card p-7 mb-6">
+                  <h2 className="text-lg font-bold text-[var(--foreground)] mb-6">个人资料</h2>
 
                   {/* Avatar */}
                   <div className="flex items-center gap-5 mb-8">
@@ -209,30 +417,24 @@ const Settings = () => {
                           src={avatarUrl}
                           alt="头像"
                           className="w-20 h-20 rounded-2xl object-cover"
-                          style={{ boxShadow: `0 4px 20px rgba(124,106,255,0.3)` }}
                         />
                       ) : (
                         <div
-                          className="w-20 h-20 rounded-2xl flex items-center justify-center text-xl font-black"
-                          style={{
-                            background: `linear-gradient(135deg, #7c6aff, #f472b6)`,
-                            boxShadow: `0 4px 20px rgba(124,106,255,0.3)`,
-                          }}
+                          className="w-20 h-20 rounded-2xl flex items-center justify-center text-xl font-black bg-[var(--foreground)] text-[var(--background)]"
                         >
                           {name ? name.slice(0, 2).toUpperCase() : `U`}
                         </div>
                       )}
                       <button
                         onClick={() => setShowAvatarInput(!showAvatarInput)}
-                        className="absolute -bottom-1 -right-1 w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:opacity-80"
-                        style={{ background: `linear-gradient(135deg, #7c6aff, #38bdf8)` }}
+                        className="absolute -bottom-1 -right-1 w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:opacity-80 bg-[var(--foreground)] text-[var(--background)]"
                       >
-                        <Camera size={13} style={{ color: `white` }} />
+                        <Camera size={13} />
                       </button>
                     </div>
                     <div>
-                      <div className="text-sm font-semibold text-foreground mb-1">更换头像</div>
-                      <div className="text-xs text-foreground/40">输入头像图片链接</div>
+                      <div className="text-sm font-semibold text-[var(--foreground)] mb-1">更换头像</div>
+                      <div className="text-xs text-[var(--muted-foreground)]">输入头像图片链接</div>
                       {showAvatarInput && (
                         <div className="mt-2 flex gap-2">
                           <input
@@ -245,7 +447,7 @@ const Settings = () => {
                           />
                           <button
                             onClick={() => setShowAvatarInput(false)}
-                            className="text-xs btn-ghost-glass px-2 py-1.5 rounded-lg text-foreground"
+                            className="text-xs btn-ghost px-2 py-1.5 rounded-lg text-[var(--foreground)]"
                           >
                             确定
                           </button>
@@ -255,30 +457,19 @@ const Settings = () => {
                   </div>
 
                   <div className="flex flex-col gap-5">
-                    <div className="flex gap-5">
-                      <div className="flex-1">
-                        <label className="text-xs font-medium mb-1.5 block" style={{ color: `rgba(var(--foreground-rgb), 0.6)` }}>显示名称</label>
-                        <input
-                          type="text"
-                          value={name}
-                          onChange={(e) => setName(e.target.value)}
-                          className="glass-input w-full px-4 py-3 rounded-xl text-sm"
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <label className="text-xs font-medium mb-1.5 block" style={{ color: `rgba(var(--foreground-rgb), 0.6)` }}>用户名</label>
-                        <input
-                          type="text"
-                          defaultValue={name || `user`}
-                          className="glass-input w-full px-4 py-3 rounded-xl text-sm"
-                          readOnly
-                          style={{ opacity: 0.6, cursor: `not-allowed` }}
-                        />
-                      </div>
+                    <div>
+                      <label className="text-xs font-medium mb-1.5 block text-[var(--muted-foreground)]">用户名（不可修改）</label>
+                      <input
+                        type="text"
+                        value={name}
+                        readOnly
+                        className="glass-input w-full px-4 py-3 rounded-xl text-sm"
+                        style={{ opacity: 0.6, cursor: `not-allowed` }}
+                      />
                     </div>
 
                     <div>
-                      <label className="text-xs font-medium mb-1.5 block" style={{ color: `rgba(var(--foreground-rgb), 0.6)` }}>邮箱地址</label>
+                      <label className="text-xs font-medium mb-1.5 block text-[var(--muted-foreground)]">邮箱地址</label>
                       <input
                         type="email"
                         value={email}
@@ -289,7 +480,7 @@ const Settings = () => {
                     </div>
 
                     <div>
-                      <label className="text-xs font-medium mb-1.5 block" style={{ color: `rgba(var(--foreground-rgb), 0.6)` }}>个人简介</label>
+                      <label className="text-xs font-medium mb-1.5 block text-[var(--muted-foreground)]">个人简介</label>
                       <textarea
                         value={bio}
                         onChange={(e) => setBio(e.target.value)}
@@ -300,7 +491,7 @@ const Settings = () => {
 
                     <div className="flex gap-5">
                       <div className="flex-1">
-                        <label className="text-xs font-medium mb-1.5 block" style={{ color: `rgba(var(--foreground-rgb), 0.6)` }}>所在地</label>
+                        <label className="text-xs font-medium mb-1.5 block text-[var(--muted-foreground)]">所在地</label>
                         <input
                           type="text"
                           value={location}
@@ -309,7 +500,7 @@ const Settings = () => {
                         />
                       </div>
                       <div className="flex-1">
-                        <label className="text-xs font-medium mb-1.5 block" style={{ color: `rgba(var(--foreground-rgb), 0.6)` }}>个人网站</label>
+                        <label className="text-xs font-medium mb-1.5 block text-[var(--muted-foreground)]">个人网站</label>
                         <input
                           type="text"
                           value={website}
@@ -320,7 +511,7 @@ const Settings = () => {
                     </div>
 
                     <div>
-                      <label className="text-xs font-medium mb-1.5 block" style={{ color: `rgba(var(--foreground-rgb), 0.6)` }}>Twitter / X</label>
+                      <label className="text-xs font-medium mb-1.5 block text-[var(--muted-foreground)]">Twitter / X</label>
                       <input
                         type="text"
                         value={twitter}
@@ -330,7 +521,7 @@ const Settings = () => {
                     </div>
 
                     <div className="flex justify-end">
-                      <button onClick={handleSaveProfile} disabled={savingProfile} className="btn-primary-glass flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold" style={{ opacity: savingProfile ? 0.65 : 1 }}>
+                      <button onClick={handleSaveProfile} disabled={savingProfile} className="btn-primary flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold" style={{ opacity: savingProfile ? 0.65 : 1 }}>
                         <Check size={14} />
                         {savingProfile ? `保存中...` : `保存修改`}
                       </button>
@@ -341,35 +532,33 @@ const Settings = () => {
 
               {/* Notifications Section */}
               <div className={activeSection === `notifications` ? `` : `hidden`}>
-                <div className="glass-card p-7 mb-6">
-                  <h2 className="text-lg font-bold text-foreground mb-6">通知偏好</h2>
+                <div className="card p-7 mb-6">
+                  <h2 className="text-lg font-bold text-[var(--foreground)] mb-6">通知偏好</h2>
                   <div className="flex flex-col gap-4">
                     {notifOptions.map((opt) => (
                       <div
                         key={opt.key}
-                        className="flex items-center justify-between py-3 px-4 rounded-xl transition-colors hover:bg-foreground/3"
-                        style={{ borderBottom: `1px solid rgba(var(--foreground-rgb), 0.06)` }}
+                        className="flex items-center justify-between py-3 px-4 rounded-xl transition-colors hover:bg-[var(--brand-subtle)] border-b border-[var(--border)]"
                       >
                         <div>
-                          <div className="text-sm font-medium text-foreground">{opt.label}</div>
-                          <div className="text-xs mt-0.5 text-foreground/45">{opt.desc}</div>
+                          <div className="text-sm font-medium text-[var(--foreground)]">{opt.label}</div>
+                          <div className="text-xs mt-0.5 text-[var(--muted-foreground)]">{opt.desc}</div>
                         </div>
                         <button
                           onClick={() => setNotifStates((prev) => ({ ...prev, [opt.key]: !prev[opt.key] }))}
-                          className="relative rounded-full transition-all"
+                          className={`relative rounded-full transition-all flex-shrink-0 ${
+                            notifStates[opt.key] ? "bg-[var(--foreground)]" : "bg-[var(--border)]"
+                          }`}
                           style={{
                             width: 44,
                             height: 24,
-                            background: notifStates[opt.key] ? `linear-gradient(135deg, #7c6aff, #38bdf8)` : `rgba(var(--foreground-rgb), 0.12)`,
-                            flexShrink: 0,
                           }}
                         >
                           <div
-                            className="absolute top-1 rounded-full transition-all"
+                            className="absolute top-1 rounded-full transition-all bg-white"
                             style={{
                               width: 16,
                               height: 16,
-                              background: `white`,
                               left: notifStates[opt.key] ? 24 : 4,
                             }}
                           />
@@ -378,7 +567,7 @@ const Settings = () => {
                     ))}
                   </div>
                   <div className="flex justify-end mt-6">
-                    <button onClick={handleSaveNotif} className="btn-primary-glass flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold">
+                    <button onClick={handleSaveNotif} className="btn-primary flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold">
                       <Check size={14} />
                       保存设置
                     </button>
@@ -388,8 +577,8 @@ const Settings = () => {
 
               {/* Privacy Section */}
               <div className={activeSection === `privacy` ? `` : `hidden`}>
-                <div className="glass-card p-7 mb-6">
-                  <h2 className="text-lg font-bold text-foreground mb-6">隐私设置</h2>
+                <div className="card p-7 mb-6">
+                  <h2 className="text-lg font-bold text-[var(--foreground)] mb-6">隐私设置</h2>
                   <div className="flex flex-col gap-4 mb-8">
                     {[
                       { key: `profilePublic`, label: `公开个人主页`, desc: `所有人可以查看你的个人主页`, state: profilePublic, toggle: () => setProfilePublic(!profilePublic) },
@@ -397,24 +586,22 @@ const Settings = () => {
                     ].map((item) => (
                       <div
                         key={item.key}
-                        className="flex items-center justify-between py-3 px-4 rounded-xl"
-                        style={{ borderBottom: `1px solid rgba(var(--foreground-rgb), 0.06)` }}
+                        className="flex items-center justify-between py-3 px-4 rounded-xl border-b border-[var(--border)]"
                       >
                         <div>
-                          <div className="text-sm font-medium text-foreground">{item.label}</div>
-                          <div className="text-xs mt-0.5 text-foreground/45">{item.desc}</div>
+                          <div className="text-sm font-medium text-[var(--foreground)]">{item.label}</div>
+                          <div className="text-xs mt-0.5 text-[var(--muted-foreground)]">{item.desc}</div>
                         </div>
                         <button
                           onClick={item.toggle}
-                          className="relative rounded-full transition-all flex-shrink-0"
-                          style={{
-                            width: 44, height: 24,
-                            background: item.state ? `linear-gradient(135deg, #34d399, #38bdf8)` : `rgba(var(--foreground-rgb), 0.12)`,
-                          }}
+                          className={`relative rounded-full transition-all flex-shrink-0 ${
+                            item.state ? "bg-[var(--foreground)]" : "bg-[var(--border)]"
+                          }`}
+                          style={{ width: 44, height: 24 }}
                         >
                           <div
-                            className="absolute top-1 rounded-full transition-all"
-                            style={{ width: 16, height: 16, background: `white`, left: item.state ? 24 : 4 }}
+                            className="absolute top-1 rounded-full transition-all bg-white"
+                            style={{ width: 16, height: 16, left: item.state ? 24 : 4 }}
                           />
                         </button>
                       </div>
@@ -422,18 +609,18 @@ const Settings = () => {
                   </div>
 
                   {/* Change password */}
-                  <div style={{ borderTop: `1px solid rgba(var(--foreground-rgb), 0.06)` }} className="pt-6">
-                    <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
-                      <Lock size={14} style={{ color: `#34d399` }} />
+                  <div className="pt-6 border-t border-[var(--border)]">
+                    <h3 className="text-sm font-semibold text-[var(--foreground)] mb-4 flex items-center gap-2">
+                      <Lock size={14} />
                       修改密码
                     </h3>
                     <form onSubmit={handleChangePass} className="flex flex-col gap-3">
                       <div>
-                        <label className="text-xs font-medium mb-1.5 block" style={{ color: `rgba(var(--foreground-rgb), 0.6)` }}>当前密码</label>
-                        <input type="password" value={oldPass} onChange={(e) => setOldPass(e.target.value)} className="glass-input w-full px-4 py-3 rounded-xl text-sm" placeholder="••••••••" />
+                        <label className="text-xs font-medium mb-1.5 block text-[var(--muted-foreground)]">当前密码</label>
+                        <input type="password" value={oldPass} onChange={(e) => setOldPass(e.target.value)} className="glass-input w-full px-4 py-3 rounded-xl text-sm" placeholder="..." />
                       </div>
                       <div>
-                        <label className="text-xs font-medium mb-1.5 block" style={{ color: `rgba(var(--foreground-rgb), 0.6)` }}>新密码</label>
+                        <label className="text-xs font-medium mb-1.5 block text-[var(--muted-foreground)]">新密码</label>
                         <div className="relative">
                           <input
                             type={showPass ? `text` : `password`}
@@ -442,13 +629,13 @@ const Settings = () => {
                             className="glass-input w-full px-4 py-3 rounded-xl text-sm pr-11"
                             placeholder="至少6位"
                           />
-                          <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2">
-                            {showPass ? <EyeOff size={15} className="text-foreground/40" /> : <Eye size={15} className="text-foreground/40" />}
+                          <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]">
+                            {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
                           </button>
                         </div>
                       </div>
                       <div className="flex justify-end">
-                        <button type="submit" className="btn-primary-glass flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold">
+                        <button type="submit" className="btn-primary flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold">
                           确认修改
                         </button>
                       </div>
@@ -459,49 +646,21 @@ const Settings = () => {
 
               {/* Appearance Section */}
               <div className={activeSection === `appearance` ? `` : `hidden`}>
-                <div className="glass-card p-7 mb-6">
-                  <h2 className="text-lg font-bold text-foreground mb-6">外观设置</h2>
+                <div className="card p-7 mb-6">
+                  <h2 className="text-lg font-bold text-[var(--foreground)] mb-6">外观设置</h2>
 
                   <div className="mb-6">
-                    <label className="text-sm font-medium text-foreground mb-3 block">主题色</label>
-                    <div className="flex gap-3">
-                      {themeAccents.map((accent) => (
-                        <button
-                          key={accent.color}
-                          onClick={() => setSelectedAccent(accent.color)}
-                          className="flex flex-col items-center gap-2"
-                        >
-                          <div
-                            className="w-10 h-10 rounded-xl flex items-center justify-center transition-all"
-                            style={{
-                              background: accent.color,
-                              border: selectedAccent === accent.color ? `2px solid white` : `2px solid transparent`,
-                              boxShadow: selectedAccent === accent.color ? `0 0 15px ${accent.color}60` : `none`,
-                            }}
-                          >
-                            <div className={selectedAccent === accent.color ? `` : `hidden`}>
-                              <Check size={14} style={{ color: `white` }} />
-                            </div>
-                          </div>
-                          <span className="text-xs" style={{ color: `rgba(var(--foreground-rgb), 0.5)` }}>{accent.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="mb-6">
-                    <label className="text-sm font-medium text-foreground mb-3 block">正文字号</label>
+                    <label className="text-sm font-medium text-[var(--foreground)] mb-3 block">正文字号</label>
                     <div className="flex gap-2">
                       {[`small`, `medium`, `large`].map((size) => (
                         <button
                           key={size}
                           onClick={() => setFontSize(size)}
-                          className="px-5 py-2.5 rounded-xl text-sm transition-all"
-                          style={{
-                            background: fontSize === size ? `rgba(124,106,255,0.15)` : `rgba(var(--foreground-rgb), 0.05)`,
-                            color: fontSize === size ? `var(--primary)` : `rgba(var(--foreground-rgb), 0.6)`,
-                            border: `1px solid ${fontSize === size ? `rgba(124,106,255,0.3)` : `rgba(var(--foreground-rgb), 0.1)`}`,
-                          }}
+                          className={`px-5 py-2.5 rounded-xl text-sm transition-all border ${
+                            fontSize === size
+                              ? "bg-[var(--brand-subtle)] text-[var(--foreground)] border-[var(--border-strong)]"
+                              : "bg-[var(--muted)] text-[var(--muted-foreground)] border-[var(--border)]"
+                          }`}
                         >
                           {size === `small` ? `小` : size === `medium` ? `中` : `大`}
                         </button>
@@ -510,7 +669,7 @@ const Settings = () => {
                   </div>
 
                   <div className="flex justify-end">
-                    <button onClick={() => toast.success(`外观设置已保存！`)} className="btn-primary-glass flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold">
+                    <button onClick={() => toast.success(`外观设置已保存！`)} className="btn-primary flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold">
                       <Check size={14} />
                       应用设置
                     </button>
@@ -518,51 +677,146 @@ const Settings = () => {
                 </div>
               </div>
 
+              {/* Background Section */}
+              <div className={activeSection === `background` ? `` : `hidden`}>
+                <div className="card p-7 mb-6">
+                  <h2 className="text-lg font-bold text-[var(--foreground)] mb-2">背景设置</h2>
+                  <p className="text-xs text-[var(--muted-foreground)] mb-6">
+                    上传图片作为网站背景。图片仅保存在你的浏览器本地；登录后服务器会留存你的背景配置（不含图片数据）。
+                  </p>
+
+                  {/* 当前背景预览 */}
+                  {bgSetting && (
+                    <div className="mb-6">
+                      <div className="text-sm font-medium text-[var(--foreground)] mb-3">当前背景</div>
+                      <div className="relative h-40 rounded-xl overflow-hidden border border-[var(--border)]">
+                        <img
+                          src={bgSetting.image_url || bgSetting.source}
+                          alt="当前背景"
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          onClick={removeBg}
+                          className="absolute top-2 right-2 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-black/60 text-white hover:bg-black/80 transition-colors"
+                        >
+                          <X size={12} /> 移除背景
+                        </button>
+                      </div>
+                      {bgSetting.type === "style" && (
+                        <div className="mt-2 text-xs text-[var(--muted-foreground)]">
+                          当前为 AI 风格化背景（风格：{bgSetting.style_id || "自定义"}）
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 上传新背景 */}
+                  <div className="mb-6">
+                    <div className="text-sm font-medium text-[var(--foreground)] mb-3">上传新背景</div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleBgFile(e.target.files?.[0])}
+                      className="block text-sm text-[var(--muted-foreground)] file:mr-3 file:px-4 file:py-2 file:rounded-xl file:border-0 file:text-sm file:font-medium file:bg-[var(--muted)] file:text-[var(--foreground)] hover:file:bg-[var(--border)]"
+                    />
+                    {bgPreview && (
+                      <div className="mt-3 flex items-end gap-3">
+                        <img
+                          src={bgPreview}
+                          alt="预览"
+                          className="h-32 rounded-xl border border-[var(--border)] object-cover"
+                        />
+                        <button
+                          onClick={() => applyBg({ type: "image", source: bgPreview })}
+                          className="btn-primary flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold"
+                        >
+                          <Check size={14} /> 应用为背景
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* AI 风格化背景 */}
+                  <div className="border-t border-[var(--border)] pt-6">
+                    <div className="text-sm font-medium text-[var(--foreground)] mb-1">AI 风格化背景</div>
+                    <p className="text-xs text-[var(--muted-foreground)] mb-3">
+                      把上传的图片按所选风格重绘后作为背景（需在 config.json 配置 dashscope_api_key）
+                    </p>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {styles.map((s: StyleOption) => (
+                        <button
+                          key={s.id}
+                          onClick={() => setBgStyleId(s.id)}
+                          disabled={bgGenerating}
+                          className={`px-4 py-2 rounded-xl text-xs font-medium transition-all border ${
+                            bgStyleId === s.id
+                              ? "bg-[var(--brand-subtle)] text-[var(--foreground)] border-[var(--border-strong)]"
+                              : "bg-[var(--muted)] text-[var(--muted-foreground)] border-[var(--border)]"
+                          }`}
+                        >
+                          {s.name}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={generateBg}
+                      disabled={bgGenerating || !bgPreview}
+                      className="btn-primary flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50"
+                    >
+                      {bgGenerating ? (
+                        <><Loader2 size={14} className="animate-spin" /> AI 生成中（约 1-2 分钟）...</>
+                      ) : (
+                        <><Wand2 size={14} /> 生成风格化背景</>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* 服务器留存信息 */}
+                  {serverBg && serverBg.type !== "none" && (
+                    <div className="mt-5 pt-4 border-t border-[var(--border)] text-xs text-[var(--muted-foreground)]">
+                      服务器已留存配置：
+                      {serverBg.type === "style"
+                        ? `AI 风格化（${serverBg.style_id || "未知"}）`
+                        : "自定义图片"}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Account Section */}
               <div className={activeSection === `account` ? `` : `hidden`}>
-                <div className="glass-card p-7 mb-6">
-                  <h2 className="text-lg font-bold text-foreground mb-6">账号管理</h2>
+                <div className="card p-7 mb-6">
+                  <h2 className="text-lg font-bold text-[var(--foreground)] mb-6">账号管理</h2>
 
                   <div className="flex flex-col gap-4">
                     <div
-                      className="flex items-center justify-between p-4 rounded-xl"
-                      style={{ background: `rgba(var(--foreground-rgb), 0.03)`, border: `1px solid rgba(var(--foreground-rgb), 0.06)` }}
+                      className="flex items-center justify-between p-4 rounded-xl bg-[var(--muted)] border border-[var(--border)]"
                     >
                       <div className="flex items-center gap-3">
-                        <Mail size={16} style={{ color: `#38bdf8` }} />
+                        <Mail size={16} />
                         <div>
-                          <div className="text-sm font-medium text-foreground">绑定邮箱</div>
-                          <div className="text-xs text-foreground/45">{email || "admin@example.com"}</div>
+                          <div className="text-sm font-medium text-[var(--foreground)]">绑定邮箱</div>
+                          <div className="text-xs text-[var(--muted-foreground)]">{email || "admin@example.com"}</div>
                         </div>
                       </div>
-                      <button className="btn-ghost-glass px-3 py-1.5 rounded-lg text-xs text-foreground">
+                      <button className="btn-ghost px-3 py-1.5 rounded-lg text-xs text-[var(--foreground)]">
                         修改
                       </button>
                     </div>
 
-                    <div className="mt-6 pt-6" style={{ borderTop: `1px solid rgba(var(--foreground-rgb), 0.06)` }}>
-                      <h3 className="text-sm font-semibold mb-4" style={{ color: `rgba(244,114,182,0.8)` }}>危险操作</h3>
+                    <div className="mt-6 pt-6 border-t border-[var(--border)]">
+                      <h3 className="text-sm font-semibold mb-4 text-[var(--destructive)]">危险操作</h3>
                       <div className="flex flex-col gap-3">
                         <button
                           onClick={handleLogout}
-                          className="flex items-center gap-3 px-5 py-3.5 rounded-xl text-sm font-medium transition-all hover:opacity-80"
-                          style={{
-                            background: `rgba(244,114,182,0.08)`,
-                            border: `1px solid rgba(244,114,182,0.18)`,
-                            color: `#f472b6`,
-                          }}
+                          className="flex items-center gap-3 px-5 py-3.5 rounded-xl text-sm font-medium transition-all hover:opacity-80 bg-[var(--destructive-subtle)] border border-[var(--destructive)]/20 text-[var(--destructive)]"
                         >
                           <LogOut size={16} />
                           退出登录
                         </button>
                         <button
                           onClick={handleDeleteAccount}
-                          className="flex items-center gap-3 px-5 py-3.5 rounded-xl text-sm font-medium transition-all hover:opacity-80"
-                          style={{
-                            background: `rgba(239,68,68,0.08)`,
-                            border: `1px solid rgba(239,68,68,0.18)`,
-                            color: `#ef4444`,
-                          }}
+                          className="flex items-center gap-3 px-5 py-3.5 rounded-xl text-sm font-medium transition-all hover:opacity-80 bg-[var(--destructive-subtle)] border border-[var(--destructive)]/20 text-[var(--destructive)]"
                         >
                           <Trash2 size={16} />
                           删除账号

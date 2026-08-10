@@ -94,6 +94,9 @@ redis_data/
 *.sqlite
 *.sqlite3
 
+# Generated style-transfer images
+uploads/
+
 # 压缩包 / 临时文件
 *.zip
 *.tar.gz

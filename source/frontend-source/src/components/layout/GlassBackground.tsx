@@ -1,118 +1,110 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  BACKGROUND_CHANGE_EVENT,
+  backgroundImage,
+  loadBackground,
+  type BackgroundSetting,
+} from "../../lib/background";
 
-interface GlassBackgroundProps {
-  showParticles?: boolean;
-}
-
-// @cuiruoni+玻璃态背景组件：Canvas粒子动画+CSS渐变光球+网格纹理+暗角效果，营造深色科技感氛围
-const GlassBackground = ({ showParticles = true }: GlassBackgroundProps) => {
+const GlassBackground = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [bg, setBg] = useState<BackgroundSetting | null>(() => loadBackground());
 
-  // @cuiruoni+Canvas粒子动画：50个霓虹色粒子缓慢上浮，大粒子带发光效果
+  // @cuiruoni+监听背景设置变化（Settings 页保存后立即生效；storage 事件兼容多标签页）
   useEffect(() => {
-    if (!showParticles) return;
+    const apply = () => setBg(loadBackground());
+    window.addEventListener(BACKGROUND_CHANGE_EVENT, apply);
+    window.addEventListener("storage", apply);
+    return () => {
+      window.removeEventListener(BACKGROUND_CHANGE_EVENT, apply);
+      window.removeEventListener("storage", apply);
+    };
+  }, []);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const setCanvasSize = () => {
+    let animationId: number;
+    let time = 0;
+
+    const resize = () => {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
     };
-    setCanvasSize();
+    resize();
+    window.addEventListener("resize", resize);
 
-    /* Neon-themed particle colors matching purple/blue palette */
-    // @cuiruoni+粒子颜色与主题紫蓝配色一致，保持视觉统一
-    const particles: Array<{
-      x: number; y: number; size: number; speedY: number;
-      speedX: number; opacity: number; color: string;
-    }> = [];
+    const isDark = document.documentElement.classList.contains("dark");
 
-    const colors = ["124, 106, 255", "56, 189, 248", "168, 85, 247", "99, 102, 241"];
-
-    // 移动端/低功耗设备进一步减少粒子数，降低主线程压力
-    const isMobile = window.matchMedia("(pointer: coarse)").matches;
-    const particleCount = isMobile ? 10 : 18;
-
-    for (let i = 0; i < particleCount; i++) {
-      particles.push({
-        x: Math.random() * canvas.width,
-        y: Math.random() * canvas.height,
-        size: Math.random() * 2 + 0.5,
-        speedY: Math.random() * 0.2 + 0.04,
-        speedX: (Math.random() - 0.5) * 0.12,
-        opacity: Math.random() * 0.3 + 0.05,
-        color: colors[Math.floor(Math.random() * colors.length)],
-      });
-    }
-
-    let animId: number;
-    let frameSkip = 0;
-    // @cuiruoni+检测用户是否偏好减少动画，尊重系统无障碍设置
-    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const orbs = [
+      { x: 0.2, y: 0.3, radius: 0.4, speed: 0.0003, phase: 0, color: isDark ? "rgba(99, 102, 241, 0.04)" : "rgba(99, 102, 241, 0.03)" },
+      { x: 0.8, y: 0.7, radius: 0.35, speed: 0.0004, phase: 2, color: isDark ? "rgba(168, 85, 247, 0.04)" : "rgba(168, 85, 247, 0.03)" },
+      { x: 0.5, y: 0.5, radius: 0.45, speed: 0.0002, phase: 4, color: isDark ? "rgba(59, 130, 246, 0.04)" : "rgba(59, 130, 246, 0.03)" },
+    ];
 
     const animate = () => {
-      // 隔一帧绘制一次，降低 GPU/CPU 占用且视觉上仍流畅
-      frameSkip = (frameSkip + 1) % 2;
-      if (frameSkip === 0) {
-        animId = requestAnimationFrame(animate);
-        return;
-      }
+      time += 1;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      particles.forEach((p) => {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(${p.color}, ${p.opacity})`;
-        ctx.fill();
-        p.y -= p.speedY;
-        p.x += p.speedX;
-        if (p.y < -10) {
-          p.y = canvas.height + 10;
-          p.x = Math.random() * canvas.width;
-        }
-        if (p.x < -10) p.x = canvas.width + 10;
-        if (p.x > canvas.width + 10) p.x = -10;
+
+      orbs.forEach((orb) => {
+        const x = canvas.width * (orb.x + Math.sin(time * orb.speed + orb.phase) * 0.15);
+        const y = canvas.height * (orb.y + Math.cos(time * orb.speed * 0.8 + orb.phase) * 0.15);
+        const radius = canvas.width * orb.radius;
+
+        const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+        gradient.addColorStop(0, orb.color);
+        gradient.addColorStop(1, "transparent");
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
       });
-      animId = requestAnimationFrame(animate);
+
+      animationId = requestAnimationFrame(animate);
     };
 
-    /* Respect reduced-motion preference */
-    if (!prefersReducedMotion) {
-      animate();
-    }
+    animate();
 
-    // @cuiruoni+清理函数：组件卸载时取消动画帧和resize监听，防止内存泄漏
-    window.addEventListener("resize", setCanvasSize);
+    const observer = new MutationObserver(() => {
+      const newIsDark = document.documentElement.classList.contains("dark");
+      orbs[0].color = newIsDark ? "rgba(99, 102, 241, 0.04)" : "rgba(99, 102, 241, 0.03)";
+      orbs[1].color = newIsDark ? "rgba(168, 85, 247, 0.04)" : "rgba(168, 85, 247, 0.03)";
+      orbs[2].color = newIsDark ? "rgba(59, 130, 246, 0.04)" : "rgba(59, 130, 246, 0.03)";
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+
     return () => {
-      cancelAnimationFrame(animId);
-      window.removeEventListener("resize", setCanvasSize);
+      cancelAnimationFrame(animationId);
+      window.removeEventListener("resize", resize);
+      observer.disconnect();
     };
-  }, [showParticles]);
+  }, []);
+
+  // @cuiruoni+背景图：有自定义背景时渲染图片 + 主题色遮罩（保证前景可读），无则纯主题底色
+  const img = backgroundImage(bg);
 
   return (
-    <div data-cmp="GlassBackground" className="fixed inset-0 pointer-events-none -z-10 overflow-hidden bg-background transition-colors duration-700">
-      {/* Neon gradient orbs — purple top-left, blue bottom-right */}
-      <div className="absolute top-[-15%] left-[-10%] w-[45vw] h-[45vw] rounded-full bg-[var(--neon-purple)]/8 blur-[120px] animate-pulse" style={{ animationDuration: '8s' }} />
-      <div className="absolute bottom-[-15%] right-[-10%] w-[40vw] h-[40vw] rounded-full bg-[var(--neon-blue)]/8 blur-[100px] animate-pulse" style={{ animationDuration: '10s' }} />
-      {/* Third accent orb for depth */}
-      <div className="absolute top-[40%] right-[20%] w-[25vw] h-[25vw] rounded-full bg-purple-500/5 blur-[80px] animate-pulse" style={{ animationDuration: '12s' }} />
-
-      {/* Subtle grid pattern — CSS-only decorative element */}
-      <div
-        className="absolute inset-0 opacity-[0.02] dark:opacity-[0.04]"
-        style={{
-          backgroundImage: `linear-gradient(var(--neon-purple) 1px, transparent 1px), linear-gradient(90deg, var(--neon-purple) 1px, transparent 1px)`,
-          backgroundSize: '60px 60px',
-        }}
+    <>
+      {img ? (
+        <>
+          <div
+            className="fixed inset-0 -z-20 bg-cover bg-center"
+            style={{ backgroundImage: `url("${img}")` }}
+          />
+          <div className="fixed inset-0 -z-20 bg-[var(--background)]/55" />
+        </>
+      ) : (
+        <div className="fixed inset-0 -z-20 bg-[var(--background)] transition-colors duration-500" />
+      )}
+      <canvas
+        ref={canvasRef}
+        className="fixed inset-0 -z-10 pointer-events-none"
+        style={{ opacity: 0.8 }}
       />
-
-      {/* Particle canvas */}
-      <canvas ref={canvasRef} className="absolute inset-0 opacity-40 dark:opacity-60" />
-
-      {/* Vignette effect */}
-      <div className="absolute inset-0 pointer-events-none vignette" />
-    </div>
+    </>
   );
 };
 

@@ -43,19 +43,25 @@ services:
       - DB_NAME=blog
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - JWT_SECRET=${JWT_SECRET:-change-me-to-a-random-secret-min-32-chars}
+      # @cuiruoni+阿里云百炼 DashScope API Key（图片风格转换功能）
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
     volumes:
       - ./config:/app/config
+      # @cuiruoni+风格转换生成图持久化
+      - ./uploads:/app/uploads
 
   frontend:
     image: nginx:alpine
     restart: unless-stopped
     ports:
       - "80:80"
-      - "443:443"
+      # @cuiruoni+HTTPS需先配置证书并启用nginx.conf中的443 server块，再取消以下映射
+      # - "443:443"
     depends_on:
       - backend
     volumes:
-      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./source/frontend-source/dist:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
 volumes:

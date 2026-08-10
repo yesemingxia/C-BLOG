@@ -1,5 +1,6 @@
 #include "controllers/auth_controller.h"
 
+#include "dao/notification_dao.h"
 #include "dao/user_dao.h"
 #include "db/redis_pool.h"
 #include "services/auth_service.h"
@@ -34,6 +35,16 @@ static http::response<http::string_body> handle_register(
             res.body() = response::error(400, "Username and password are required");
             res.prepare_payload();
             return res;
+        }
+        // @cuiruoni+P1修复：注册时校验邮箱格式（与联系表单一致）
+        if (!email.empty()) {
+            static std::regex email_regex(R"(^[^\s@]+@[^\s@]+\.[^\s@]+$)");
+            if (!std::regex_match(email, email_regex)) {
+                http::response<http::string_body> res{http::status::bad_request, req.version()};
+                res.body() = response::error(400, "Invalid email address");
+                res.prepare_payload();
+                return res;
+            }
         }
 
         // @cuiruoni+密码复杂度校验：至少6位，包含大小写字母和数字
@@ -95,6 +106,14 @@ static http::response<http::string_body> handle_register(
 
         http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success("Registration successful", data);
+        // @cuiruoni+P2修复：登录态写入HttpOnly Cookie，前端JS无法读取，降低XSS窃取风险
+        // @cuiruoni+HTTPS 部署时配置 cookie_secure=true 追加 Secure 标志，防止明文传输
+        {
+            std::string cookie = "blog_token=" + token + "; HttpOnly; Path=/; Max-Age=" +
+                std::to_string(Config::instance().jwt_expire_seconds()) + "; SameSite=Lax";
+            if (Config::instance().get_bool("cookie_secure", false)) cookie += "; Secure";
+            res.set(http::field::set_cookie, cookie);
+        }
         res.prepare_payload();
         return res;
     } catch (const std::exception& e) {
@@ -180,6 +199,13 @@ static http::response<http::string_body> handle_login(
 
         http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success("Login successful", data);
+        // @cuiruoni+P2修复：登录态写入HttpOnly Cookie，前端JS无法读取，降低XSS窃取风险
+        {
+            std::string cookie = "blog_token=" + token + "; HttpOnly; Path=/; Max-Age=" +
+                std::to_string(Config::instance().jwt_expire_seconds()) + "; SameSite=Lax";
+            if (Config::instance().get_bool("cookie_secure", false)) cookie += "; Secure";
+            res.set(http::field::set_cookie, cookie);
+        }
         res.prepare_payload();
         return res;
     } catch (const std::exception& e) {
@@ -194,19 +220,24 @@ static http::response<http::string_body> handle_login(
 // @cuiruoni+注销处理：提取Bearer token→加入Redis黑名单，TTL与token过期时间一致
 static http::response<http::string_body> handle_logout(
     const http::request<http::string_body>& req, const RouteParams& params) {
-    std::string auth_field(req[http::field::authorization]);
-    if (auth_field.empty() || auth_field.substr(0, 7) != "Bearer ") {
+    std::string token = auth_service::extract_token_from_request(req);
+    if (token.empty()) {
         http::response<http::string_body> res{http::status::unauthorized, req.version()};
         res.body() = response::error(401, "Missing Authorization header");
         res.prepare_payload();
         return res;
     }
 
-    std::string token = auth_field.substr(7);
     // @cuiruoni+将token加入黑名单，TTL设为JWT过期时间，过期后自动从Redis清除
     auth_service::blacklist_token(token, Config::instance().jwt_expire_seconds());
 
     http::response<http::string_body> res{http::status::ok, req.version()};
+    // @cuiruoni+P2修复：同时清除HttpOnly Cookie
+    {
+        std::string cookie = "blog_token=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax";
+        if (Config::instance().get_bool("cookie_secure", false)) cookie += "; Secure";
+        res.set(http::field::set_cookie, cookie);
+    }
     res.body() = response::success(std::string("Logout successful"));
     res.prepare_payload();
     return res;
@@ -215,8 +246,8 @@ static http::response<http::string_body> handle_logout(
 // @cuiruoni+获取当前用户资料：需认证，返回完整用户信息（不含密码）
 static http::response<http::string_body> handle_get_profile(
     const http::request<http::string_body>& req, const RouteParams& params) {
-    std::string auth_field(req[http::field::authorization]);
-    if (auth_field.empty() || auth_field.substr(0, 7) != "Bearer ") {
+    std::string token = auth_service::extract_token_from_request(req);
+    if (token.empty()) {
         // @cuiruoni+未登录时返回空数据，方便前端判断登录状态而不报错
         http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(json::value(nullptr));
@@ -224,7 +255,6 @@ static http::response<http::string_body> handle_get_profile(
         return res;
     }
 
-    std::string token = auth_field.substr(7);
     int64_t user_id = 0;
     std::string username, role;
     if (!auth_service::validate_token(token, user_id, username, role)) {
@@ -261,15 +291,14 @@ static http::response<http::string_body> handle_get_profile(
 // @cuiruoni+使用参数化查询防止SQL注入，只更新请求中提供的字段
 static http::response<http::string_body> handle_update_profile(
     const http::request<http::string_body>& req, const RouteParams& params) {
-    std::string auth_field(req[http::field::authorization]);
-    if (auth_field.empty() || auth_field.substr(0, 7) != "Bearer ") {
+    std::string token = auth_service::extract_token_from_request(req);
+    if (token.empty()) {
         http::response<http::string_body> res{http::status::unauthorized, req.version()};
         res.body() = response::error(401, "Authentication required");
         res.prepare_payload();
         return res;
     }
 
-    std::string token = auth_field.substr(7);
     int64_t user_id = 0;
     std::string username, role;
     if (!auth_service::validate_token(token, user_id, username, role)) {
@@ -324,19 +353,150 @@ static http::response<http::string_body> handle_update_profile(
     }
 }
 
-// @cuiruoni+修改密码：需认证，验证旧密码后更新为新密码
-static http::response<http::string_body> handle_change_password(
-    const http::request<http::string_body>& req, const RouteParams& params) {
-    // @cuiruoni+认证检查
-    std::string auth_field(req[http::field::authorization]);
-    if (auth_field.empty() || auth_field.substr(0, 7) != "Bearer ") {
+// @cuiruoni+获取当前用户背景设置：需认证，返回服务器留存的背景配置信息
+static http::response<http::string_body> handle_get_background(
+    const http::request<http::string_body>& req, const RouteParams&) {
+    std::string token = auth_service::extract_token_from_request(req);
+    if (token.empty()) {
         http::response<http::string_body> res{http::status::unauthorized, req.version()};
         res.body() = response::error(401, "Authentication required");
         res.prepare_payload();
         return res;
     }
 
-    std::string token = auth_field.substr(7);
+    int64_t user_id = 0;
+    std::string username, role;
+    if (!auth_service::validate_token(token, user_id, username, role)) {
+        http::response<http::string_body> res{http::status::unauthorized, req.version()};
+        res.body() = response::error(401, "Invalid or expired token");
+        res.prepare_payload();
+        return res;
+    }
+
+    try {
+        std::string background_json;
+        if (!user_dao::get_background(user_id, background_json)) {
+            spdlog::warn("Get background: query failed for user {}", user_id);
+        }
+
+        json::value bg = json::value(nullptr);
+        if (!background_json.empty()) {
+            try {
+                bg = json::parse(background_json);
+            } catch (...) {
+                // @cuiruoni+历史脏数据按无背景处理
+            }
+        }
+
+        json::object data;
+        data["background"] = std::move(bg);
+        http::response<http::string_body> res{http::status::ok, req.version()};
+        res.body() = response::success(data);
+        res.prepare_payload();
+        return res;
+    } catch (const std::exception& e) {
+        spdlog::error("Get background error: {}", e.what());
+        http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+        res.body() = response::error(500, "Internal server error");
+        res.prepare_payload();
+        return res;
+    }
+}
+
+// @cuiruoni+保存当前用户背景设置：需认证，只留存配置信息（type/style_id/image_url），不含图片数据
+static http::response<http::string_body> handle_update_background(
+    const http::request<http::string_body>& req, const RouteParams&) {
+    std::string token = auth_service::extract_token_from_request(req);
+    if (token.empty()) {
+        http::response<http::string_body> res{http::status::unauthorized, req.version()};
+        res.body() = response::error(401, "Authentication required");
+        res.prepare_payload();
+        return res;
+    }
+
+    int64_t user_id = 0;
+    std::string username, role;
+    if (!auth_service::validate_token(token, user_id, username, role)) {
+        http::response<http::string_body> res{http::status::unauthorized, req.version()};
+        res.body() = response::error(401, "Invalid or expired token");
+        res.prepare_payload();
+        return res;
+    }
+
+    try {
+        json::value v;
+        try {
+            v = json::parse(req.body());
+        } catch (const std::exception&) {
+            http::response<http::string_body> res{http::status::bad_request, req.version()};
+            res.body() = response::error(400, "请求体必须是合法 JSON");
+            res.prepare_payload();
+            return res;
+        }
+        if (!v.is_object()) {
+            http::response<http::string_body> res{http::status::bad_request, req.version()};
+            res.body() = response::error(400, "请求体必须是 JSON 对象");
+            res.prepare_payload();
+            return res;
+        }
+        const auto& obj = v.as_object();
+
+        // @cuiruoni+校验 type 枚举与字段长度，防脏数据入库
+        std::string type = obj.contains("type") && obj.at("type").is_string()
+            ? std::string(obj.at("type").as_string()) : "none";
+        if (type != "none" && type != "image" && type != "style") {
+            http::response<http::string_body> res{http::status::bad_request, req.version()};
+            res.body() = response::error(400, "非法 background type");
+            res.prepare_payload();
+            return res;
+        }
+
+        std::string style_id = obj.contains("style_id") && obj.at("style_id").is_string()
+            ? std::string(obj.at("style_id").as_string()) : "";
+        std::string image_url = obj.contains("image_url") && obj.at("image_url").is_string()
+            ? std::string(obj.at("image_url").as_string()) : "";
+        style_id = sanitize::truncate(style_id, 50);
+        image_url = sanitize::truncate(image_url, 300);
+
+        // @cuiruoni+重新序列化，丢弃未知字段，保证存储结构可控
+        json::object bg;
+        bg["type"] = type;
+        bg["style_id"] = style_id;
+        bg["image_url"] = image_url;
+        std::string bg_str = json::serialize(json::value(std::move(bg)));
+
+        if (!user_dao::update_background(user_id, bg_str)) {
+            http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+            res.body() = response::error(500, "保存失败");
+            res.prepare_payload();
+            return res;
+        }
+
+        http::response<http::string_body> res{http::status::ok, req.version()};
+        res.body() = response::success("Background saved", json::parse(bg_str));
+        res.prepare_payload();
+        return res;
+    } catch (const std::exception& e) {
+        spdlog::error("Update background error: {}", e.what());
+        http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+        res.body() = response::error(500, "Internal server error");
+        res.prepare_payload();
+        return res;
+    }
+}
+
+// @cuiruoni+修改密码：需认证，验证旧密码后更新为新密码
+static http::response<http::string_body> handle_change_password(
+    const http::request<http::string_body>& req, const RouteParams& params) {
+    // @cuiruoni+认证检查
+    std::string token = auth_service::extract_token_from_request(req);
+    if (token.empty()) {
+        http::response<http::string_body> res{http::status::unauthorized, req.version()};
+        res.body() = response::error(401, "Authentication required");
+        res.prepare_payload();
+        return res;
+    }
+
     int64_t user_id = 0;
     std::string username, role;
     if (!auth_service::validate_token(token, user_id, username, role)) {
@@ -415,6 +575,9 @@ static http::response<http::string_body> handle_change_password(
         // @cuiruoni+通过DAO层更新密码
         user_dao::update_password(user_id, new_hash_b64, new_salt_b64);
 
+        // @cuiruoni+P1修复：改密后把当前token加入黑名单，旧token立即失效
+        auth_service::blacklist_token(token, Config::instance().jwt_expire_seconds());
+
         http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(std::string("Password changed successfully"));
         res.prepare_payload();
@@ -451,6 +614,14 @@ static http::response<http::string_body> handle_get_public_profile(
             return res;
         }
 
+        // @cuiruoni+P1修复：公开资料附带"当前用户是否已关注"
+        int64_t viewer_id = 0;
+        std::string viewer_name, viewer_role;
+        bool authed = auth_service::extract_user_from_token(req, viewer_id, viewer_name, viewer_role);
+        int64_t target_id = profile.contains("id") ? profile["id"].as_int64() : 0;
+        profile["is_following"] = authed && target_id != viewer_id
+            ? user_dao::is_following(viewer_id, target_id) : false;
+
         http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(profile);
         res.prepare_payload();
@@ -464,12 +635,103 @@ static http::response<http::string_body> handle_get_public_profile(
     }
 }
 
+// @cuiruoni+关注用户：成功后通知对方（P1修复）
+static http::response<http::string_body> handle_follow_user(
+    const http::request<http::string_body>& req, const RouteParams& params) {
+    int64_t user_id = 0;
+    std::string username, role;
+    if (!auth_service::extract_user_from_token(req, user_id, username, role)) {
+        http::response<http::string_body> res{http::status::unauthorized, req.version()};
+        res.body() = response::error(401, "Authentication required");
+        res.prepare_payload();
+        return res;
+    }
+
+    auto it = params.path.find("username");
+    if (it == params.path.end() || it->second.empty()) {
+        http::response<http::string_body> res{http::status::bad_request, req.version()};
+        res.body() = response::error(400, "Username is required");
+        res.prepare_payload();
+        return res;
+    }
+
+    int64_t target_id = user_dao::find_id_by_username(it->second);
+    if (target_id == 0) {
+        http::response<http::string_body> res{http::status::not_found, req.version()};
+        res.body() = response::error(404, "User not found");
+        res.prepare_payload();
+        return res;
+    }
+    if (target_id == user_id) {
+        http::response<http::string_body> res{http::status::bad_request, req.version()};
+        res.body() = response::error(400, "Cannot follow yourself");
+        res.prepare_payload();
+        return res;
+    }
+
+    bool newly_followed = user_dao::follow(user_id, target_id);
+    if (newly_followed) {
+        notification_dao::insert(target_id, "follow", username, "关注了你", "");
+    }
+
+    json::object data;
+    data["is_following"] = true;
+    data["follower_count"] = user_dao::count_followers(target_id);
+    http::response<http::string_body> res{http::status::ok, req.version()};
+    res.body() = response::success("Followed", data);
+    res.prepare_payload();
+    return res;
+}
+
+// @cuiruoni+取消关注
+static http::response<http::string_body> handle_unfollow_user(
+    const http::request<http::string_body>& req, const RouteParams& params) {
+    int64_t user_id = 0;
+    std::string username, role;
+    if (!auth_service::extract_user_from_token(req, user_id, username, role)) {
+        http::response<http::string_body> res{http::status::unauthorized, req.version()};
+        res.body() = response::error(401, "Authentication required");
+        res.prepare_payload();
+        return res;
+    }
+
+    auto it = params.path.find("username");
+    if (it == params.path.end() || it->second.empty()) {
+        http::response<http::string_body> res{http::status::bad_request, req.version()};
+        res.body() = response::error(400, "Username is required");
+        res.prepare_payload();
+        return res;
+    }
+
+    int64_t target_id = user_dao::find_id_by_username(it->second);
+    if (target_id == 0) {
+        http::response<http::string_body> res{http::status::not_found, req.version()};
+        res.body() = response::error(404, "User not found");
+        res.prepare_payload();
+        return res;
+    }
+
+    user_dao::unfollow(user_id, target_id);
+
+    json::object data;
+    data["is_following"] = false;
+    data["follower_count"] = user_dao::count_followers(target_id);
+    http::response<http::string_body> res{http::status::ok, req.version()};
+    res.body() = response::success("Unfollowed", data);
+    res.prepare_payload();
+    return res;
+}
+
 void register_auth_routes(Router& router) {
     router.add_route("POST", "/api/auth/register", handle_register);
     router.add_route("POST", "/api/auth/login", handle_login);
     router.add_route("POST", "/api/auth/logout", handle_logout);
     router.add_route("GET", "/api/users/profile", handle_get_profile);
     router.add_route("PUT", "/api/users/profile", handle_update_profile);
+    router.add_route("GET", "/api/users/background", handle_get_background);
+    router.add_route("PUT", "/api/users/background", handle_update_background);
     router.add_route("POST", "/api/auth/change-password", handle_change_password);
     router.add_route("GET", "/api/users/:username", handle_get_public_profile);
+    router.add_route("POST", "/api/users/:username/follow", handle_follow_user);
+    router.add_route("DELETE", "/api/users/:username/follow", handle_unfollow_user);
 }

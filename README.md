@@ -14,6 +14,7 @@
 - CORS 跨域中间件
 - PBKDF2 密码哈希（OpenSSL）
 - spdlog 高性能日志
+- 图片风格转换（上传照片 → 通义万相 AI 重绘为纸刊插画海报）
 
 ### 前端
 
@@ -84,7 +85,7 @@ C-BLOG/
 │       ├── logger              # 日志封装
 │       ├── password            # 密码哈希
 │       └── response            # 统一响应格式
-└── react/                      # 前端源码
+└── source/frontend-source/     # 前端源码
     ├── package.json
     ├── vite.config.ts
     ├── tsconfig.json
@@ -154,7 +155,7 @@ mysql -u root -p < sql/seed.sql
 ### 3. 前端开发
 
 ```bash
-cd react
+cd source/frontend-source
 npm install
 npm run dev
 ```
@@ -181,6 +182,8 @@ npm run dev
     "redis_pool_size": 4,
     "jwt_secret": "<your_jwt_secret>",
     "jwt_expire_seconds": 86400,
+    "dashscope_api_key": "<your_dashscope_api_key>",
+    "dashscope_model": "wan2.7-image",
     "log_level": "info",
     "log_file": ""
 }
@@ -203,3 +206,7 @@ npm run dev
 | POST | `/api/posts/:id/comments` | 发表评论 | - |
 | GET | `/api/tags` | 获取标签列表 | - |
 | GET | `/api/search?q=keyword` | 全文搜索 | - |
+| GET | `/api/styles` | 获取风格列表 | - |
+| POST | `/api/styles/transfer` | 提交图片风格转换（base64 图片 + 风格 ID） | - |
+| GET | `/api/styles/tasks/:id` | 查询风格转换任务状态 | - |
+| GET | `/api/styles/file/:name` | 获取生成结果图片 | - |

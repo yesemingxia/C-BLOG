@@ -18,6 +18,10 @@ export interface ApiPost {
   status?: string;
   tags?: string[];
   likes?: number;
+  like_count?: number;
+  comment_count?: number;
+  liked?: boolean;
+  bookmarked?: boolean;
   comments_count?: number;
   views?: number;
   view_count?: number;
@@ -84,6 +88,9 @@ export interface UserProfile {
   website: string;
   twitter: string;
   created_at: string;
+  follower_count?: number;
+  following_count?: number;
+  is_following?: boolean;
 }
 
 export interface ApiNotification {
@@ -96,14 +103,16 @@ export interface ApiNotification {
   created_at: string;
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function request<T>(path: string, options?: RequestInit, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers: { "Content-Type": "application/json", ...options?.headers },
       signal: controller.signal,
+      // @cuiruoni+P2修复：认证改用HttpOnly Cookie，请求必须携带凭证
+      credentials: "include",
     });
     if (!res.ok) {
       if (res.status === 401) {
@@ -132,16 +141,15 @@ function normalizePost(p: ApiPost): ApiPost {
     excerpt: p.excerpt ?? p.summary,
     author_id: p.author_id ?? p.user_id,
     views: p.views ?? p.view_count,
+    likes: p.likes ?? p.like_count ?? 0,
+    comments_count: p.comments_count ?? p.comment_count ?? 0,
   };
 }
 
-function getToken(): string | null {
-  return localStorage.getItem("blog_token");
-}
-
 function authHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  // @cuiruoni+P2修复：登录态已迁移到HttpOnly Cookie，不再从localStorage读取token
+  // 保留函数签名以兼容调用点，实际不附加Authorization头
+  return {};
 }
 
 export interface AuthUser {
@@ -158,9 +166,8 @@ export const authApi = {
       { method: "POST", body: JSON.stringify({ username, email, password }) }
     );
     if (res.success && res.data?.token) {
-      localStorage.setItem("blog_token", res.data.token);
-      localStorage.setItem("blog_logged_in", "true");
-      localStorage.setItem("blog_user", JSON.stringify(res.data.user));
+      // @cuiruoni+P2修复：token由后端写入HttpOnly Cookie，前端不再存储
+      void res.data.token;
     }
     return res;
   },
@@ -171,9 +178,8 @@ export const authApi = {
       { method: "POST", body: JSON.stringify({ email, password }) }
     );
     if (res.success && res.data?.token) {
-      localStorage.setItem("blog_token", res.data.token);
-      localStorage.setItem("blog_logged_in", "true");
-      localStorage.setItem("blog_user", JSON.stringify(res.data.user));
+      // @cuiruoni+P2修复：token由后端写入HttpOnly Cookie，前端不再存储
+      void res.data.token;
     }
     return res;
   },
@@ -182,6 +188,7 @@ export const authApi = {
     try {
       await request("/auth/logout", { method: "POST", headers: authHeaders() });
     } catch { /* ignore */ }
+    // @cuiruoni+清理旧版本遗留的localStorage登录态
     localStorage.removeItem("blog_token");
     localStorage.removeItem("blog_logged_in");
     localStorage.removeItem("blog_user");
@@ -196,7 +203,8 @@ export const postsApi = {
   },
 
   get: async (id: number): Promise<ApiPost> => {
-    const res = await request<ApiResponse<ApiPost>>(`/posts/${id}`);
+    // @cuiruoni+P0修复：带认证头请求，作者才能读取自己的草稿
+    const res = await request<ApiResponse<ApiPost>>(`/posts/${id}`, { headers: authHeaders() });
     if (!res.data) throw new Error("Post not found");
     return normalizePost(res.data);
   },
@@ -223,6 +231,35 @@ export const postsApi = {
 
   delete: async (id: number): Promise<void> => {
     await request(`/posts/${id}`, { method: "DELETE", headers: authHeaders() });
+  },
+
+  // @cuiruoni+P1修复：点赞/收藏（后端持久化）
+  like: async (id: number): Promise<void> => {
+    await request(`/posts/${id}/like`, { method: "POST", headers: authHeaders() });
+  },
+
+  unlike: async (id: number): Promise<void> => {
+    await request(`/posts/${id}/like`, { method: "DELETE", headers: authHeaders() });
+  },
+
+  bookmark: async (id: number): Promise<void> => {
+    await request(`/posts/${id}/bookmark`, { method: "POST", headers: authHeaders() });
+  },
+
+  unbookmark: async (id: number): Promise<void> => {
+    await request(`/posts/${id}/bookmark`, { method: "DELETE", headers: authHeaders() });
+  },
+
+  liked: async (page = 1, pageSize = 10): Promise<{ posts: ApiPost[]; total: number }> => {
+    const res = await request<ApiResponse<{ posts: ApiPost[]; total: number }>>(
+      `/posts/liked?page=${page}&page_size=${pageSize}`, { headers: authHeaders() });
+    return res.data ?? { posts: [], total: 0 };
+  },
+
+  bookmarked: async (page = 1, pageSize = 10): Promise<{ posts: ApiPost[]; total: number }> => {
+    const res = await request<ApiResponse<{ posts: ApiPost[]; total: number }>>(
+      `/posts/bookmarked?page=${page}&page_size=${pageSize}`, { headers: authHeaders() });
+    return res.data ?? { posts: [], total: 0 };
   },
 };
 
@@ -266,8 +303,11 @@ export const tagsApi = {
 
 export const searchApi = {
   search: async (query: string): Promise<ApiPost[]> => {
-    const res = await request<ApiResponse<ApiPost[]>>(`/search?q=${encodeURIComponent(query)}`);
-    return (res.data ?? []).map(normalizePost);
+    // @cuiruoni+P0修复：后端返回 {code, data: {query, results, total}}，兼容数组形态
+    const res = await request<ApiResponse<ApiPost[] | { results: ApiPost[] }>>(`/search?q=${encodeURIComponent(query)}`);
+    const data = res.data;
+    const posts = Array.isArray(data) ? data : data?.results ?? [];
+    return posts.map(normalizePost);
   },
 };
 
@@ -310,10 +350,10 @@ export const adminApi = {
 };
 
 export const profileApi = {
-  get: async (): Promise<UserProfile> => {
+  get: async (): Promise<UserProfile | null> => {
     const res = await request<ApiResponse<UserProfile>>("/users/profile", { headers: authHeaders() });
-    if (!res.data) throw new Error("Failed to load profile");
-    return res.data;
+    // @cuiruoni+P2修复：未登录时后端返回data=null，这里返回null供AuthProvider判断登录态
+    return res.data ?? null;
   },
 
   update: async (data: Partial<Pick<UserProfile, "email" | "bio" | "avatar" | "location" | "website" | "twitter">>): Promise<UserProfile> => {
@@ -338,6 +378,14 @@ export const profileApi = {
     const res = await request<ApiResponse<UserProfile & { posts: ApiPost[] }>>(`/users/${encodeURIComponent(username)}`);
     if (!res.data) throw new Error("Profile not found");
     return res.data;
+  },
+
+  follow: async (username: string): Promise<void> => {
+    await request(`/users/${encodeURIComponent(username)}/follow`, { method: "POST", headers: authHeaders() });
+  },
+
+  unfollow: async (username: string): Promise<void> => {
+    await request(`/users/${encodeURIComponent(username)}/follow`, { method: "DELETE", headers: authHeaders() });
   },
 };
 
@@ -366,6 +414,82 @@ export const notificationsApi = {
 
   delete: async (id: number): Promise<void> => {
     await request(`/notifications/${id}`, { method: "DELETE", headers: authHeaders() });
+  },
+};
+
+// @cuiruoni+图片风格转换 API（图片上传 → 后台 AI 生成）
+export interface StyleOption {
+  id: string;
+  name: string;
+  description: string;
+  ratio: string;
+}
+
+export interface StyleTaskInfo {
+  id: string;
+  style: string;
+  status: "pending" | "processing" | "done" | "failed";
+  error?: string;
+  result_url?: string;
+  created_at?: string;
+}
+
+export const styleApi = {
+  listStyles: async (): Promise<StyleOption[]> => {
+    const res = await request<ApiResponse<StyleOption[]>>("/styles");
+    return res.data ?? [];
+  },
+
+  transfer: async (
+    style: string,
+    imageBase64: string,
+    imageMime: string
+  ): Promise<{ task_id: string }> => {
+    // @cuiruoni+图片 base64 体积大，上传超时放宽到 60 秒
+    const res = await request<ApiResponse<{ task_id: string }>>(
+      "/styles/transfer",
+      {
+        method: "POST",
+        body: JSON.stringify({ style, image_base64: imageBase64, image_mime: imageMime }),
+      },
+      60_000
+    );
+    if (!res.success || !res.data?.task_id) {
+      throw new Error(res.message || "提交失败");
+    }
+    return res.data;
+  },
+
+  getTask: async (taskId: string): Promise<StyleTaskInfo> => {
+    const res = await request<ApiResponse<StyleTaskInfo>>(`/styles/tasks/${taskId}`);
+    if (!res.success || !res.data) {
+      throw new Error(res.message || "查询任务失败");
+    }
+    return res.data;
+  },
+};
+
+// @cuiruoni+背景设置 API：服务器只留存配置信息（type/style_id/image_url），图片数据存浏览器本地
+export interface BackgroundSettingInfo {
+  type: string;
+  style_id?: string;
+  image_url?: string;
+}
+
+export const backgroundApi = {
+  get: async (): Promise<{ background: BackgroundSettingInfo | null }> => {
+    const res = await request<ApiResponse<{ background: BackgroundSettingInfo | null }>>(
+      "/users/background"
+    );
+    return res.data ?? { background: null };
+  },
+
+  save: async (bg: BackgroundSettingInfo): Promise<void> => {
+    await request("/users/background", {
+      method: "PUT",
+      body: JSON.stringify(bg),
+      headers: authHeaders(),
+    });
   },
 };
 

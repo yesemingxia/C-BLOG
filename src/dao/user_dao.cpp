@@ -56,11 +56,11 @@ bool find_by_username_or_email(const std::string& username,
         if (row.isNull()) return false;
 
         id = static_cast<int64_t>(row[0]);
-        db_username = static_cast<std::string>(row[1]);
-        password_hash = static_cast<std::string>(row[2]);
-        salt = static_cast<std::string>(row[3]);
-        role = static_cast<std::string>(row[4]);
-        email = row[5].isNull() ? "" : static_cast<std::string>(row[5]);
+        db_username = mysqlx_helper::to_string(row[1]);
+        password_hash = mysqlx_helper::to_string(row[2]);
+        salt = mysqlx_helper::to_string(row[3]);
+        role = mysqlx_helper::to_string(row[4]);
+        email = row[5].isNull() ? "" : mysqlx_helper::to_string(row[5]);
         return true;
     } catch (const std::exception& e) {
         spdlog::error("user_dao::find_by_username_or_email error: {}", e.what());
@@ -74,7 +74,8 @@ json::object find_profile_by_id(int64_t user_id) {
 
     try {
         auto result = sess->sql(
-            "SELECT id, username, email, role, bio, avatar, location, website, twitter, created_at "
+            "SELECT id, username, email, role, bio, avatar, location, website, twitter, "
+            "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at "
             "FROM users WHERE id = ?")
             .bind(user_id).execute();
         auto row = result.fetchOne();
@@ -82,15 +83,15 @@ json::object find_profile_by_id(int64_t user_id) {
 
         json::object data;
         data["id"] = static_cast<int64_t>(row[0]);
-        data["username"] = static_cast<std::string>(row[1]);
-        data["email"] = row[2].isNull() ? "" : static_cast<std::string>(row[2]);
-        data["role"] = static_cast<std::string>(row[3]);
-        data["bio"] = row[4].isNull() ? "" : static_cast<std::string>(row[4]);
-        data["avatar"] = row[5].isNull() ? "" : static_cast<std::string>(row[5]);
-        data["location"] = row[6].isNull() ? "" : static_cast<std::string>(row[6]);
-        data["website"] = row[7].isNull() ? "" : static_cast<std::string>(row[7]);
-        data["twitter"] = row[8].isNull() ? "" : static_cast<std::string>(row[8]);
-        data["created_at"] = static_cast<std::string>(row[9]);
+        data["username"] = mysqlx_helper::to_string(row[1]);
+        data["email"] = row[2].isNull() ? "" : mysqlx_helper::to_string(row[2]);
+        data["role"] = mysqlx_helper::to_string(row[3]);
+        data["bio"] = row[4].isNull() ? "" : mysqlx_helper::to_string(row[4]);
+        data["avatar"] = row[5].isNull() ? "" : mysqlx_helper::to_string(row[5]);
+        data["location"] = row[6].isNull() ? "" : mysqlx_helper::to_string(row[6]);
+        data["website"] = row[7].isNull() ? "" : mysqlx_helper::to_string(row[7]);
+        data["twitter"] = row[8].isNull() ? "" : mysqlx_helper::to_string(row[8]);
+        data["created_at"] = mysqlx_helper::to_string(row[9]);
         return data;
     } catch (const std::exception& e) {
         spdlog::error("user_dao::find_profile_by_id error: {}", e.what());
@@ -118,6 +119,38 @@ bool update_profile(int64_t user_id, const std::string& email,
     }
 }
 
+bool get_background(int64_t user_id, std::string& background_json) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return false;
+
+    try {
+        auto result = sess->sql("SELECT background FROM users WHERE id = ?")
+            .bind(user_id).execute();
+        auto row = result.fetchOne();
+        if (row.isNull()) return false;
+
+        background_json = mysqlx_helper::to_string(row[0]);
+        return true;
+    } catch (const std::exception& e) {
+        spdlog::error("user_dao::get_background error: {}", e.what());
+        return false;
+    }
+}
+
+bool update_background(int64_t user_id, const std::string& background_json) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return false;
+
+    try {
+        sess->sql("UPDATE users SET background = ? WHERE id = ?")
+            .bind(background_json).bind(user_id).execute();
+        return true;
+    } catch (const std::exception& e) {
+        spdlog::error("user_dao::update_background error: {}", e.what());
+        return false;
+    }
+}
+
 bool find_password_by_id(int64_t user_id, std::string& password_hash, std::string& salt) {
     auto sess = MysqlPool::instance().acquire();
     if (!sess) return false;
@@ -128,8 +161,8 @@ bool find_password_by_id(int64_t user_id, std::string& password_hash, std::strin
         auto row = result.fetchOne();
         if (row.isNull()) return false;
 
-        password_hash = static_cast<std::string>(row[0]);
-        salt = static_cast<std::string>(row[1]);
+        password_hash = mysqlx_helper::to_string(row[0]);
+        salt = mysqlx_helper::to_string(row[1]);
         return true;
     } catch (const std::exception& e) {
         spdlog::error("user_dao::find_password_by_id error: {}", e.what());
@@ -157,7 +190,8 @@ json::object find_public_profile_by_username(const std::string& username) {
 
     try {
         auto user_result = sess->sql(
-            "SELECT id, username, bio, avatar, location, website, twitter, created_at "
+            "SELECT id, username, bio, avatar, location, website, twitter, "
+            "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at "
             "FROM users WHERE username = ?")
             .bind(username).execute();
         auto user_row = user_result.fetchOne();
@@ -166,28 +200,32 @@ json::object find_public_profile_by_username(const std::string& username) {
         int64_t uid = static_cast<int64_t>(user_row[0]);
         json::object profile;
         profile["id"] = uid;
-        profile["username"] = static_cast<std::string>(user_row[1]);
-        profile["bio"] = user_row[2].isNull() ? "" : static_cast<std::string>(user_row[2]);
-        profile["avatar"] = user_row[3].isNull() ? "" : static_cast<std::string>(user_row[3]);
-        profile["location"] = user_row[4].isNull() ? "" : static_cast<std::string>(user_row[4]);
-        profile["website"] = user_row[5].isNull() ? "" : static_cast<std::string>(user_row[5]);
-        profile["twitter"] = user_row[6].isNull() ? "" : static_cast<std::string>(user_row[6]);
-        profile["created_at"] = static_cast<std::string>(user_row[7]);
+        profile["username"] = mysqlx_helper::to_string(user_row[1]);
+        profile["bio"] = user_row[2].isNull() ? "" : mysqlx_helper::to_string(user_row[2]);
+        profile["avatar"] = user_row[3].isNull() ? "" : mysqlx_helper::to_string(user_row[3]);
+        profile["location"] = user_row[4].isNull() ? "" : mysqlx_helper::to_string(user_row[4]);
+        profile["website"] = user_row[5].isNull() ? "" : mysqlx_helper::to_string(user_row[5]);
+        profile["twitter"] = user_row[6].isNull() ? "" : mysqlx_helper::to_string(user_row[6]);
+        profile["created_at"] = mysqlx_helper::to_string(user_row[7]);
+        // @cuiruoni+P1修复：公开资料附带关注统计
+        profile["follower_count"] = count_followers(uid);
+        profile["following_count"] = count_following(uid);
 
         auto posts_result = sess->sql(
-            "SELECT id, title, summary, status, view_count, created_at "
-            "FROM posts WHERE user_id = ? ORDER BY created_at DESC")
+            "SELECT id, title, summary, status, view_count, "
+            "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at "
+            "FROM posts WHERE user_id = ? AND status = 'published' ORDER BY created_at DESC")
             .bind(uid).execute();
 
         json::array posts_arr;
         for (auto row = posts_result.begin(); row != posts_result.end(); ++row) {
             json::object post_obj;
             post_obj["id"] = static_cast<int64_t>((*row)[0]);
-            post_obj["title"] = static_cast<std::string>((*row)[1]);
-            post_obj["summary"] = (*row)[2].isNull() ? "" : static_cast<std::string>((*row)[2]);
-            post_obj["status"] = static_cast<std::string>((*row)[3]);
+            post_obj["title"] = mysqlx_helper::to_string((*row)[1]);
+            post_obj["summary"] = (*row)[2].isNull() ? "" : mysqlx_helper::to_string((*row)[2]);
+            post_obj["status"] = mysqlx_helper::to_string((*row)[3]);
             post_obj["view_count"] = static_cast<int64_t>((*row)[4]);
-            post_obj["created_at"] = static_cast<std::string>((*row)[5]);
+            post_obj["created_at"] = mysqlx_helper::to_string((*row)[5]);
             post_obj["author"] = username;
             posts_arr.push_back(post_obj);
         }
@@ -223,8 +261,8 @@ json::array list_users(int page, int page_size, int& total) {
 
         int offset = (page - 1) * page_size;
         auto result = sess->sql(
-            "SELECT id, username, email, role, created_at FROM users "
-            "ORDER BY created_at DESC LIMIT ? OFFSET ?")
+            "SELECT id, username, email, role, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at "
+            "FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?")
             .bind(page_size).bind(offset).execute();
 
         json::array arr;
@@ -279,6 +317,86 @@ bool delete_by_id(int64_t user_id) {
         return true;
     } catch (const std::exception& e) {
         spdlog::error("user_dao::delete_by_id error: {}", e.what());
+        return false;
+    }
+}
+
+int64_t find_id_by_username(const std::string& username) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return 0;
+    try {
+        auto result = sess->sql("SELECT id FROM users WHERE username = ?")
+            .bind(username).execute();
+        auto row = result.fetchOne();
+        if (row.isNull()) return 0;
+        return static_cast<int64_t>(row[0]);
+    } catch (const std::exception& e) {
+        spdlog::error("user_dao::find_id_by_username error: {}", e.what());
+        return 0;
+    }
+}
+
+int64_t count_followers(int64_t user_id) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return 0;
+    try {
+        auto result = sess->sql("SELECT COUNT(*) FROM follows WHERE followee_id = ?")
+            .bind(user_id).execute();
+        return static_cast<int64_t>(result.fetchOne()[0]);
+    } catch (const std::exception& e) {
+        spdlog::error("user_dao::count_followers error: {}", e.what());
+        return 0;
+    }
+}
+
+int64_t count_following(int64_t user_id) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return 0;
+    try {
+        auto result = sess->sql("SELECT COUNT(*) FROM follows WHERE follower_id = ?")
+            .bind(user_id).execute();
+        return static_cast<int64_t>(result.fetchOne()[0]);
+    } catch (const std::exception& e) {
+        spdlog::error("user_dao::count_following error: {}", e.what());
+        return 0;
+    }
+}
+
+bool is_following(int64_t follower_id, int64_t followee_id) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return false;
+    try {
+        auto result = sess->sql("SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?")
+            .bind(follower_id).bind(followee_id).execute();
+        return result.count() > 0;
+    } catch (const std::exception& e) {
+        spdlog::error("user_dao::is_following error: {}", e.what());
+        return false;
+    }
+}
+
+bool follow(int64_t follower_id, int64_t followee_id) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return false;
+    try {
+        auto result = sess->sql("INSERT IGNORE INTO follows (follower_id, followee_id) VALUES (?, ?)")
+            .bind(follower_id).bind(followee_id).execute();
+        return result.getAffectedItemsCount() > 0;
+    } catch (const std::exception& e) {
+        spdlog::error("user_dao::follow error: {}", e.what());
+        return false;
+    }
+}
+
+bool unfollow(int64_t follower_id, int64_t followee_id) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return false;
+    try {
+        sess->sql("DELETE FROM follows WHERE follower_id = ? AND followee_id = ?")
+            .bind(follower_id).bind(followee_id).execute();
+        return true;
+    } catch (const std::exception& e) {
+        spdlog::error("user_dao::unfollow error: {}", e.what());
         return false;
     }
 }

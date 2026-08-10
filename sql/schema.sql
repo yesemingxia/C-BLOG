@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
     location VARCHAR(100) DEFAULT '',
     website VARCHAR(200) DEFAULT '',
     twitter VARCHAR(100) DEFAULT '',
+    background VARCHAR(512) DEFAULT '',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -77,4 +78,33 @@ CREATE TABLE IF NOT EXISTS contact_messages (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-ALTER TABLE posts ADD FULLTEXT INDEX ft_posts_search(title, content_md);
+-- @cuiruoni+P1修复：点赞/收藏/关注表（版本化迁移由 database.cpp 保证幂等）
+CREATE TABLE IF NOT EXISTS post_likes (
+    user_id BIGINT NOT NULL,
+    post_id BIGINT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, post_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS post_bookmarks (
+    user_id BIGINT NOT NULL,
+    post_id BIGINT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, post_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS follows (
+    follower_id BIGINT NOT NULL,
+    followee_id BIGINT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (follower_id, followee_id),
+    FOREIGN KEY (follower_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (followee_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- @cuiruoni+P1修复：全文索引由后端启动时的 database.cpp 幂等创建，
+-- 此处不再执行非幂等的 ALTER TABLE，避免重复执行 schema.sql 报错

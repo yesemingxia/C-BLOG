@@ -32,6 +32,11 @@ bool update_profile(int64_t user_id, const std::string& email,
                     const std::string& location, const std::string& website,
                     const std::string& twitter);
 
+// background setting (JSON string: {"type":"image|style|none","style_id":"...","image_url":"..."})
+bool get_background(int64_t user_id, std::string& background_json);
+
+bool update_background(int64_t user_id, const std::string& background_json);
+
 // @cuiruoni+查询用户密码哈希和盐，用于修改密码时验证旧密码
 bool find_password_by_id(int64_t user_id, std::string& password_hash, std::string& salt);
 
@@ -55,5 +60,15 @@ bool update_role(int64_t user_id, const std::string& new_role);
 
 // @cuiruoni+删除用户
 bool delete_by_id(int64_t user_id);
+
+// @cuiruoni+根据用户名查询用户ID（不存在返回0）
+int64_t find_id_by_username(const std::string& username);
+
+// @cuiruoni+关注/粉丝功能
+int64_t count_followers(int64_t user_id);
+int64_t count_following(int64_t user_id);
+bool is_following(int64_t follower_id, int64_t followee_id);
+bool follow(int64_t follower_id, int64_t followee_id);
+bool unfollow(int64_t follower_id, int64_t followee_id);
 
 }

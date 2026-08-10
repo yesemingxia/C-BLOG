@@ -26,6 +26,7 @@ void Database::init_tables() {
             "  location VARCHAR(100) DEFAULT '',"
             "  website VARCHAR(200) DEFAULT '',"
             "  twitter VARCHAR(100) DEFAULT '',"
+            "  background VARCHAR(512) DEFAULT '',"
             "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
             "  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
             ")"
@@ -117,35 +118,89 @@ void Database::init_tables() {
             spdlog::debug("Fulltext index may already exist: {}", e.what());
         }
 
-        // @cuiruoni+数据库迁移：为已有users表添加新字段（CREATE IF NOT EXISTS不会添加新列）
-        // @cuiruoni+使用存储过程安全添加列，列已存在时跳过
-        // @cuiruoni+SECURITY WARNING: 此lambda使用字符串拼接构建SQL，仅限硬编码常量调用
-        // @cuiruoni+严禁将用户输入传入此函数，否则将导致SQL注入
-        auto add_column_if_not_exists = [&](const std::string& table, const std::string& column, const std::string& definition) {
-            try {
-                sess->sql(
-                    "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
-                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '" + table + "' AND COLUMN_NAME = '" + column + "'"
-                ).execute();
-                // @cuiruoni+简化方案：直接尝试ALTER TABLE，列已存在时忽略错误
-            } catch (...) {}
-            try {
-                sess->sql("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition).execute();
-                spdlog::info("Migration: added column {}.{}", table, column);
-            } catch (const std::exception& e) {
-                // @cuiruoni+列已存在时会报Duplicate column错误，安全忽略
-                spdlog::debug("Migration skipped {}.{}: {}", table, column, e.what());
-            }
+        // @cuiruoni+P1修复：版本化迁移机制。schema_migrations 表记录已应用版本，
+        // 新增列/表统一通过迁移演进，替代原先"直接ALTER+忽略错误"的临时方案
+        sess->sql(
+            "CREATE TABLE IF NOT EXISTS schema_migrations ("
+            "  version INT PRIMARY KEY,"
+            "  name VARCHAR(200) NOT NULL,"
+            "  applied_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+            ")"
+        ).execute();
+
+        struct Migration {
+            int version;
+            std::string name;
+            std::string sql;
+        };
+        const std::vector<Migration> migrations = {
+            {1, "add_users_bio", "ALTER TABLE users ADD COLUMN bio VARCHAR(500) DEFAULT ''"},
+            {2, "add_users_avatar", "ALTER TABLE users ADD COLUMN avatar VARCHAR(500) DEFAULT ''"},
+            {3, "add_users_location", "ALTER TABLE users ADD COLUMN location VARCHAR(100) DEFAULT ''"},
+            {4, "add_users_website", "ALTER TABLE users ADD COLUMN website VARCHAR(200) DEFAULT ''"},
+            {5, "add_users_twitter", "ALTER TABLE users ADD COLUMN twitter VARCHAR(100) DEFAULT ''"},
+            {6, "add_users_updated_at", "ALTER TABLE users ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"},
+            {7, "create_post_likes",
+             "CREATE TABLE IF NOT EXISTS post_likes ("
+             " user_id BIGINT NOT NULL, post_id BIGINT NOT NULL,"
+             " created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+             " PRIMARY KEY (user_id, post_id),"
+             " FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,"
+             " FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE)"},
+            {8, "create_post_bookmarks",
+             "CREATE TABLE IF NOT EXISTS post_bookmarks ("
+             " user_id BIGINT NOT NULL, post_id BIGINT NOT NULL,"
+             " created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+             " PRIMARY KEY (user_id, post_id),"
+             " FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,"
+             " FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE)"},
+            {9, "create_follows",
+             "CREATE TABLE IF NOT EXISTS follows ("
+             " follower_id BIGINT NOT NULL, followee_id BIGINT NOT NULL,"
+             " created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+             " PRIMARY KEY (follower_id, followee_id),"
+             " FOREIGN KEY (follower_id) REFERENCES users(id) ON DELETE CASCADE,"
+             " FOREIGN KEY (followee_id) REFERENCES users(id) ON DELETE CASCADE)"},
+            {10, "add_users_background", "ALTER TABLE users ADD COLUMN background VARCHAR(512) DEFAULT ''"},
         };
 
-        add_column_if_not_exists("users", "bio", "VARCHAR(500) DEFAULT ''");
-        add_column_if_not_exists("users", "avatar", "VARCHAR(500) DEFAULT ''");
-        add_column_if_not_exists("users", "location", "VARCHAR(100) DEFAULT ''");
-        add_column_if_not_exists("users", "website", "VARCHAR(200) DEFAULT ''");
-        add_column_if_not_exists("users", "twitter", "VARCHAR(100) DEFAULT ''");
-        add_column_if_not_exists("users", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+        for (const auto& m : migrations) {
+            auto applied = sess->sql("SELECT COUNT(*) FROM schema_migrations WHERE version = ?")
+                .bind(m.version).execute();
+            auto row = applied.fetchOne();
+            bool done = !row.isNull() && static_cast<int64_t>(row[0]) > 0;
+            if (done) continue;
 
-        spdlog::info("Database tables initialized");
+            bool applied_ok = false;
+            try {
+                sess->sql(m.sql).execute();
+                spdlog::info("Migration {} applied: {}", m.version, m.name);
+                applied_ok = true;
+            } catch (const std::exception& e) {
+                // @cuiruoni+列/表已存在视为幂等跳过（历史库手工执行过 DDL 的场景），
+                // @cuiruoni+其余真实错误（权限/磁盘/引擎）不得标记已应用，下次启动重试
+                std::string err = e.what();
+                bool idempotent = err.find("Duplicate column name") != std::string::npos ||
+                                  err.find("already exists") != std::string::npos ||
+                                  err.find("Duplicate entry") != std::string::npos;
+                if (idempotent) {
+                    spdlog::debug("Migration {} idempotent skip ({}): {}", m.version, m.name, err);
+                    applied_ok = true;
+                } else {
+                    spdlog::error("Migration {} FAILED ({}): {}", m.version, m.name, err);
+                }
+            }
+            if (applied_ok) {
+                try {
+                    sess->sql("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+                        .bind(m.version).bind(m.name).execute();
+                } catch (const std::exception& e) {
+                    spdlog::error("Migration {} record failed: {}", m.version, e.what());
+                }
+            }
+        }
+
+        spdlog::info("Database tables initialized ({} migrations checked)", migrations.size());
     } catch (const std::exception& e) {
         spdlog::error("Database init error: {}", e.what());
     }

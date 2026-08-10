@@ -13,6 +13,7 @@ static const std::unordered_map<std::string, std::pair<int, int>> limits_ = {
     {"register", {60, 5}},     // @cuiruoni+注册：60秒内最多5次
     {"comment",  {60, 10}},    // @cuiruoni+评论：60秒内最多10次
     {"contact",  {60, 5}},     // @cuiruoni+联系表单：60秒内最多5次，防止垃圾消息
+    {"style",    {600, 10}},   // @cuiruoni+风格转换：10分钟内最多10次（AI生成按张计费，从严限流）
     {"default",  {60, 60}},    // @cuiruoni+默认：60秒内最多60次
 };
 

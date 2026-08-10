@@ -7,44 +7,67 @@
 
 Session::Session(tcp::socket&& socket, Router& router)
     : stream_(std::move(socket)), router_(router) {
-    spdlog::info("Session created");
+    spdlog::debug("Session created");
 }
 
 void Session::run() {
-    spdlog::info("Session::run() called");
+    spdlog::debug("Session::run() called");
     read_request();
 }
 
 void Session::read_request() {
-    // @cuiruoni+每次读取新请求前重置请求对象，避免残留数据
+    // @cuiruoni+每次读取新请求前重置请求对象和解析器，避免残留数据
     req_ = http::request<http::string_body>{};
-    req_.body().reserve(Config::instance().max_request_body_bytes());
+    parser_ = std::make_unique<http::request_parser<http::string_body>>();
+    // @cuiruoni+P0修复：在解析阶段就限制请求体大小，防止超大body先读入内存导致OOM
+    parser_->body_limit(Config::instance().max_request_body_bytes());
 
     auto self = shared_from_this();
-    http::async_read(stream_, buffer_, req_,
-        [self](beast::error_code ec, std::size_t bytes) {
-            if (!ec) {
-                // @cuiruoni+检查请求体是否超过大小限制
-                auto max_bytes = Config::instance().max_request_body_bytes();
-                if (bytes > static_cast<std::size_t>(max_bytes)) {
-                    spdlog::warn("Request body too large: {} bytes (max: {})", bytes, max_bytes);
-                    http::response<http::string_body> res{http::status::payload_too_large, self->req_.version()};
-                    res.set(http::field::content_type, "application/json");
-                    res.body() = R"({"code":413,"message":"Request body too large","data":null})";
-                    res.prepare_payload();
-                    self->res_ = std::move(res);
-                    self->keep_alive_ = false;
-                    self->write_response();
-                    return;
+    // @cuiruoni+分两步读取：先读请求头拿到路径，再按路径设置 body 上限。
+    // @cuiruoni+仅图片上传接口（/api/styles/transfer）放宽到 25MB，其余接口保持
+    // @cuiruoni+默认 1MB，避免全局放大内存 DoS 面。
+    http::async_read_header(stream_, buffer_, *parser_,
+        [self](beast::error_code ec, std::size_t) {
+            if (ec) {
+                if (ec == http::error::end_of_stream) {
+                    self->close();
+                } else {
+                    spdlog::warn("Read header error: {}", ec.message());
+                    self->close();
                 }
-                self->handle_request();
-            } else if (ec == http::error::end_of_stream) {
-                // @cuiruoni+客户端正常关闭连接
-                self->close();
-            } else {
-                spdlog::warn("Read error: {} ({} bytes)", ec.message(), bytes);
-                self->close();
+                return;
             }
+
+            self->req_ = self->parser_->get();
+            std::string target(self->req_.target());
+            std::string path = target.substr(0, target.find('?'));
+            if (path == "/api/styles/transfer") {
+                self->parser_->body_limit(25 * 1024 * 1024);
+            }
+
+            http::async_read(self->stream_, self->buffer_, *self->parser_,
+                [self](beast::error_code ec2, std::size_t bytes2) {
+                    if (!ec2) {
+                        self->req_ = self->parser_->get();
+                        self->handle_request();
+                    } else if (ec2 == http::error::body_limit) {
+                        // @cuiruoni+解析器检测到请求体超过限制，直接返回413并关闭连接
+                        spdlog::warn("Request body too large");
+                        http::response<http::string_body> res{http::status::payload_too_large, self->req_.version()};
+                        res.set(http::field::content_type, "application/json");
+                        res.body() = R"({"code":413,"message":"Request body too large","data":null})";
+                        res.prepare_payload();
+                        self->res_ = std::move(res);
+                        self->keep_alive_ = false;
+                        self->write_response();
+                    } else if (ec2 == http::error::end_of_stream) {
+                        // @cuiruoni+客户端正常关闭连接
+                        self->close();
+                    } else {
+                        spdlog::warn("Read body error: {} ({} bytes)", ec2.message(), bytes2);
+                        self->close();
+                    }
+                });
         });
 }
 
@@ -56,6 +79,16 @@ void Session::handle_request() {
         res_ = http::response<http::string_body>{};
         res_.version(req_.version());
         res_.set(http::field::server, "cpp-blog/0.1.0");
+
+        // @cuiruoni+P1修复：无反向代理时回退到TCP对端地址作为客户端IP，
+        // 避免开发环境所有请求共用"unknown"限流桶/浏览量去重键
+        if (req_.find("X-Real-IP") == req_.end()) {
+            beast::error_code ec;
+            auto remote = stream_.socket().remote_endpoint(ec);
+            if (!ec) {
+                req_.set("X-Client-IP", remote.address().to_string());
+            }
+        }
 
         // @cuiruoni+先执行CORS中间件，为响应添加跨域头
         cors_middleware::cors_handle_request(req_, res_);
@@ -70,10 +103,12 @@ void Session::handle_request() {
         else if (path == "/api/auth/register") endpoint = "register";
         else if (path.find("/api/posts/") != std::string::npos && path.find("/comments") != std::string::npos) endpoint = "comment";
         else if (path == "/api/contact") endpoint = "contact";
+        else if (path == "/api/styles/transfer") endpoint = "style";
 
-        // @cuiruoni+优先使用X-Real-IP（Nginx设置），避免X-Forwarded-For可被客户端伪造
+        // @cuiruoni+优先使用X-Real-IP（Nginx设置），回退X-Client-IP（本机直连时由Session写入）
         std::string client_ip = req_.find("X-Real-IP") != req_.end()
-            ? std::string(req_["X-Real-IP"]) : "unknown";
+            ? std::string(req_["X-Real-IP"])
+            : (req_.find("X-Client-IP") != req_.end() ? std::string(req_["X-Client-IP"]) : "unknown");
         if (!rate_limiter::check(client_ip, endpoint)) {
             res_.result(http::status::too_many_requests);
             res_.set(http::field::content_type, "application/json");

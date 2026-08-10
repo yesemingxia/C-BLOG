@@ -15,8 +15,8 @@ MiddlewareFunc create_auth_middleware() {
         std::string method(req.method_string());
         if (method == "OPTIONS") return true;
 
-        std::string auth_field(req[http::field::authorization]);
-        if (auth_field.empty() || auth_field.substr(0, 7) != "Bearer ") {
+        std::string token = auth_service::extract_token_from_request(req);
+        if (token.empty()) {
             res.result(http::status::unauthorized);
             res.set(http::field::content_type, "application/json");
             res.body() = response::error(401, "Missing or invalid Authorization header");
@@ -24,7 +24,6 @@ MiddlewareFunc create_auth_middleware() {
             return false; // @cuiruoni+返回false表示拦截请求，不再执行后续handler
         }
 
-        std::string token = auth_field.substr(7);
         int64_t user_id = 0;
         std::string username, role;
         if (!auth_service::validate_token(token, user_id, username, role)) {
@@ -52,7 +51,8 @@ MiddlewareFunc create_path_protected_auth_middleware() {
         std::string target(req.target());
         std::string path = target.substr(0, target.find('?'));
 
-        // @cuiruoni+公开路径白名单：无需认证即可访问
+        // @cuiruoni+公开路径白名单：无需认证即可访问（注意：此列表对所有 HTTP 方法放行，
+        // @cuiruoni+只放行无副作用/无成本的操作，付费类接口（如风格转换提交）不得加入）
         static const std::vector<std::string> public_prefixes = {
             "/api/auth/register",
             "/api/auth/login",
@@ -62,17 +62,20 @@ MiddlewareFunc create_path_protected_auth_middleware() {
             "/api/tags"
         };
 
-        // @cuiruoni+GET请求对以下路径公开
+        // @cuiruoni+GET 请求对以下路径公开
         if (method == "GET") {
             // @cuiruoni+文章列表和详情公开
             if (path == "/api/posts" || path.find("/api/posts/") == 0) return true;
             // @cuiruoni+当前用户资料（未登录时返回空，由controller处理）
             if (path == "/api/users/profile") return true;
-            // @cuiruoni+用户公开资料公开
-            if (path.find("/api/users/") == 0 && path.find("/api/users/profile") != 0) return true;
+            // @cuiruoni+用户公开资料公开（背景设置属私有信息，单独排除）
+            if (path.find("/api/users/") == 0 && path.find("/api/users/profile") != 0
+                && path != "/api/users/background") return true;
             // @cuiruoni+标签和搜索公开
             if (path.find("/api/tags") == 0) return true;
             if (path.find("/api/search") == 0) return true;
+            // @cuiruoni+风格列表/任务查询/结果图公开；提交任务（POST）需登录，防止匿名消耗付费 API
+            if (path.find("/api/styles") == 0) return true;
             // @cuiruoni+健康检查公开
             if (path == "/") return true;
         }
@@ -82,9 +85,9 @@ MiddlewareFunc create_path_protected_auth_middleware() {
             if (path.find(prefix) == 0) return true;
         }
 
-        // @cuiruoni+非公开路径需要认证
-        std::string auth_field(req[http::field::authorization]);
-        if (auth_field.empty() || auth_field.substr(0, 7) != "Bearer ") {
+        // @cuiruoni+非公开路径需要认证（兼容Authorization头和HttpOnly Cookie）
+        std::string token = auth_service::extract_token_from_request(req);
+        if (token.empty()) {
             res.result(http::status::unauthorized);
             res.set(http::field::content_type, "application/json");
             res.body() = response::error(401, "Authentication required");
@@ -92,7 +95,6 @@ MiddlewareFunc create_path_protected_auth_middleware() {
             return false;
         }
 
-        std::string token = auth_field.substr(7);
         int64_t user_id = 0;
         std::string username, role;
         if (!auth_service::validate_token(token, user_id, username, role)) {
