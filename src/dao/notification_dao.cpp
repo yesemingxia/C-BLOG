@@ -5,13 +5,32 @@
 
 namespace notification_dao {
 
+bool insert(int64_t user_id, const std::string& type, const std::string& actor_name,
+            const std::string& content, const std::string& post_title) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return false;
+
+    try {
+        sess->sql(
+            "INSERT INTO notifications (user_id, type, actor_name, content, post_title) "
+            "VALUES (?, ?, ?, ?, ?)")
+            .bind(user_id).bind(type).bind(actor_name).bind(content).bind(post_title)
+            .execute();
+        return true;
+    } catch (const std::exception& e) {
+        spdlog::error("notification_dao::insert error: {}", e.what());
+        return false;
+    }
+}
+
 json::array list_by_user_id(int64_t user_id) {
     auto sess = MysqlPool::instance().acquire();
     if (!sess) return json::array{};
 
     try {
         auto result = sess->sql(
-            "SELECT id, type, actor_name, content, post_title, is_read, created_at "
+            "SELECT id, type, actor_name, content, post_title, is_read, "
+            "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at "
             "FROM notifications WHERE user_id = ? ORDER BY created_at DESC")
             .bind(user_id).execute();
 

@@ -25,15 +25,14 @@ inline std::string escape_html(const std::string& input) {
     return output;
 }
 
-// @cuiruoni+对字符串进行消毒：去除首尾空白，转义HTML特殊字符
+// @cuiruoni+P1修复：去除首尾空白后原样存储，不做HTML转义。
+// 前端React渲染文本时会自动转义，后端入库再转义会导致双重编码（用户输入<显示为&lt;）。
+// 需要输出为HTML的场景应显式调用escape_html。
 inline std::string clean_text(const std::string& input) {
-    // 去除首尾空白
     size_t start = input.find_first_not_of(" \t\r\n");
     size_t end = input.find_last_not_of(" \t\r\n");
     if (start == std::string::npos) return "";
-
-    std::string trimmed = input.substr(start, end - start + 1);
-    return escape_html(trimmed);
+    return input.substr(start, end - start + 1);
 }
 
 // @cuiruoni+截断字符串到指定最大长度，防止超长输入

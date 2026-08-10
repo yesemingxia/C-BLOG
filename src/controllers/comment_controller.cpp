@@ -1,7 +1,9 @@
 #include "controllers/comment_controller.h"
 
 #include "dao/comment_dao.h"
+#include "dao/notification_dao.h"
 #include "services/auth_service.h"
+#include "services/post_service.h"
 #include "utils/logger.h"
 #include "utils/response.h"
 #include "utils/sanitize.h"
@@ -25,6 +27,27 @@ static http::response<http::string_body> handle_list_comments(
     int64_t post_id = sanitize::safe_stoll(it->second);
 
     try {
+        // @cuiruoni+P0安全修复：草稿的评论列表仅作者/管理员可见，其他人404（防止通过评论泄露草稿）
+        auto post = post_service::get_post(post_id, false);
+        if (post.id == 0) {
+            http::response<http::string_body> res{http::status::not_found, req.version()};
+            res.body() = response::error(404, "Post not found");
+            res.prepare_payload();
+            return res;
+        }
+        if (post.status != "published") {
+            int64_t viewer_id = 0;
+            std::string viewer_name, viewer_role;
+            bool authed = auth_service::extract_user_from_token(req, viewer_id, viewer_name, viewer_role);
+            bool is_owner = authed && (viewer_role == "admin" || post.user_id == viewer_id);
+            if (!is_owner) {
+                http::response<http::string_body> res{http::status::not_found, req.version()};
+                res.body() = response::error(404, "Post not found");
+                res.prepare_payload();
+                return res;
+            }
+        }
+
         json::array arr = comment_dao::list_by_post_id(post_id);
 
         http::response<http::string_body> res{http::status::ok, req.version()};
@@ -64,6 +87,24 @@ static http::response<http::string_body> handle_create_comment(
     int64_t post_id = sanitize::safe_stoll(it->second);
 
     try {
+        // @cuiruoni+P0安全修复：只允许对已发布文章发表评论（作者/管理员可在自己草稿上评论）
+        auto post = post_service::get_post(post_id, false);
+        if (post.id == 0) {
+            http::response<http::string_body> res{http::status::not_found, req.version()};
+            res.body() = response::error(404, "Post not found");
+            res.prepare_payload();
+            return res;
+        }
+        if (post.status != "published") {
+            bool is_owner = auth_role == "admin" || post.user_id == auth_user_id;
+            if (!is_owner) {
+                http::response<http::string_body> res{http::status::not_found, req.version()};
+                res.body() = response::error(404, "Post not found");
+                res.prepare_payload();
+                return res;
+            }
+        }
+
         auto body = json::parse(req.body()).as_object();
         // @cuiruoni+认证用户信息作为评论作者，忽略前端传入的author_name
         std::string author_name = sanitize::truncate(sanitize::clean_text(auth_username), 50);
@@ -93,6 +134,12 @@ static http::response<http::string_body> handle_create_comment(
             res.body() = response::error(500, "Failed to create comment");
             res.prepare_payload();
             return res;
+        }
+
+        // @cuiruoni+P1修复：评论成功后通知文章作者（自己评论自己的文章不通知）
+        if (post.user_id != auth_user_id) {
+            notification_dao::insert(post.user_id, "comment", auth_username,
+                "评论了你的文章《" + post.title + "》", post.title);
         }
 
         http::response<http::string_body> res{http::status::created, req.version()};

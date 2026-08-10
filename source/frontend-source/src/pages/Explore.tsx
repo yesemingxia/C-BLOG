@@ -146,21 +146,15 @@ const Explore = () => {
 
   return (
     <div data-cmp="Explore" className="min-h-screen relative">
-      <GlassBackground showParticles={false} />
+      <GlassBackground />
       <Navbar isLoggedIn={isLoggedIn} onLogout={handleLogout} onLogin={() => navigate(`/login`)} />
 
-      <div className="relative z-10" style={{ paddingTop: 64 }}>
+      <div className="relative z-10 pt-16">
         {/* Hero banner */}
-        <div
-          className="py-14 text-center"
-          style={{
-            background: `linear-gradient(180deg, rgba(var(--foreground-rgb), 0.03) 0%, transparent 100%)`,
-            borderBottom: `1px solid rgba(var(--foreground-rgb), 0.06)`,
-          }}
-        >
-          <div className="mx-auto px-6" style={{ maxWidth: 1440 }}>
-            <h1 className="text-4xl font-black text-foreground mb-3" style={{ fontFamily: 'var(--font-display)' }}>
-              <TrendingUp size={28} className="inline mr-3 mb-1" style={{ color: `var(--primary)` }} />
+        <div className="py-14 text-center bg-gradient-to-b from-foreground/[0.03] to-transparent border-b border-foreground/[0.06]">
+          <div className="mx-auto px-6 max-w-[1440px]">
+            <h1 className="text-4xl font-black text-foreground mb-3 font-[family-name:var(--font-display)]">
+              <TrendingUp size={28} className="inline mr-3 mb-1 text-[var(--primary)]" />
               Discover
             </h1>
             <p className="text-base mb-8 text-foreground/55">
@@ -185,7 +179,7 @@ const Explore = () => {
         </div>
 
         {/* Content */}
-        <div className="mx-auto px-6 py-8" style={{ maxWidth: 1440 }}>
+        <div className="mx-auto px-6 py-8 max-w-[1440px]">
           {/* Toolbar */}
           <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
             <div className="flex items-center gap-2 flex-wrap">
@@ -193,12 +187,11 @@ const Explore = () => {
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className="px-4 py-2 rounded-xl text-sm font-medium transition-all border"
-                  style={{
-                    background: activeTab === tab ? `rgba(var(--foreground-rgb), 0.08)` : `transparent`,
-                    color: activeTab === tab ? `var(--primary)` : `rgba(var(--foreground-rgb), 0.65)`,
-                    borderColor: activeTab === tab ? `rgba(var(--foreground-rgb), 0.18)` : `rgba(var(--foreground-rgb), 0.08)`,
-                  }}
+                  className={`px-4 py-2 rounded-xl text-sm font-medium transition-all border ${
+                    activeTab === tab
+                      ? "bg-[var(--brand-subtle)] text-[var(--foreground)] border-[var(--brand-border)]"
+                      : "bg-[var(--muted)] text-[var(--muted-foreground)] border-[var(--border)]"
+                  }`}
                 >
                   {tab}
                 </button>
@@ -209,53 +202,48 @@ const Explore = () => {
               <div className="relative">
                 <button
                   onClick={() => setShowFilter(!showFilter)}
-                  className="btn-ghost-glass flex items-center gap-2 px-4 py-2 rounded-xl text-sm"
+                  className="btn-ghost flex items-center gap-2 px-4 py-2 rounded-xl text-sm"
                 >
                   <SlidersHorizontal size={15} />
                   {sortBy}
                 </button>
                 <div
-                  className="absolute right-0 top-12 w-40 bento-card rounded-xl overflow-hidden"
-                  style={{
-                    opacity: showFilter ? 1 : 0,
-                    pointerEvents: showFilter ? `auto` : `none`,
-                    transform: showFilter ? `translateY(0)` : `translateY(-6px)`,
-                    transition: `all 0.2s`,
-                    zIndex: 50,
-                  }}
+                  className={`absolute right-0 top-12 w-40 bento-card overflow-hidden z-50 transition-all duration-200 ${
+                    showFilter
+                      ? "opacity-100 translate-y-0 pointer-events-auto"
+                      : "opacity-0 -translate-y-1.5 pointer-events-none"
+                  }`}
                 >
                   {sortOptions.map((opt) => (
                     <button
                       key={opt}
                       onClick={() => { setSortBy(opt); setShowFilter(false); }}
-                      className="w-full text-left px-4 py-3 text-sm transition-colors hover:bg-foreground/5"
-                      style={{ color: sortBy === opt ? `var(--primary)` : `rgba(var(--foreground-rgb), 0.7)` }}
+                      className={`w-full text-left px-4 py-3 text-sm transition-colors hover:bg-foreground/5 ${
+                        sortBy === opt ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"
+                      }`}
                     >
                       {opt}
                     </button>
                   ))}
                 </div>
                 <div
-                  className="fixed inset-0"
-                  style={{ zIndex: -1, pointerEvents: showFilter ? `auto` : `none` }}
+                  className={`fixed inset-0 z-[-1] ${showFilter ? "pointer-events-auto" : "pointer-events-none"}`}
                   onClick={() => setShowFilter(false)}
                 />
               </div>
 
-              <div className="flex items-center gap-1 p-1 rounded-xl bg-foreground/5">
+              <div className="flex items-center gap-1 p-1 rounded-xl bg-[var(--muted)]">
                 <button
                   onClick={() => setViewMode(`grid`)}
-                  className="p-2 rounded-lg transition-all"
-                  style={{ background: viewMode === `grid` ? `rgba(var(--foreground-rgb), 0.1)` : `transparent` }}
+                  className={`p-2 rounded-lg transition-all ${viewMode === `grid` ? "bg-[var(--brand-subtle)]" : ""}`}
                 >
-                  <Grid size={15} style={{ color: viewMode === `grid` ? `var(--primary)` : `rgba(var(--foreground-rgb), 0.5)` }} />
+                  <Grid size={15} className={viewMode === `grid` ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"} />
                 </button>
                 <button
                   onClick={() => setViewMode(`list`)}
-                  className="p-2 rounded-lg transition-all"
-                  style={{ background: viewMode === `list` ? `rgba(var(--foreground-rgb), 0.1)` : `transparent` }}
+                  className={`p-2 rounded-lg transition-all ${viewMode === `list` ? "bg-[var(--brand-subtle)]" : ""}`}
                 >
-                  <List size={15} style={{ color: viewMode === `list` ? `var(--primary)` : `rgba(var(--foreground-rgb), 0.5)` }} />
+                  <List size={15} className={viewMode === `list` ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"} />
                 </button>
               </div>
             </div>
@@ -263,7 +251,7 @@ const Explore = () => {
 
           <div className="mb-5 text-sm text-foreground/50">
             {loading ? "Loading..." : (
-              <>Found <span style={{ color: `var(--primary)` }}>{sorted.length}</span> articles</>
+              <>Found <span className="text-[var(--primary)]">{sorted.length}</span> articles</>
             )}
           </div>
 
@@ -272,13 +260,12 @@ const Explore = () => {
             {sorted.map((post, i) => (
               <div
                 key={post.id}
-                style={{
-                  width: viewMode === `grid` ? `calc(33.33% - 14px)` : `100%`,
-                  minWidth: viewMode === `grid` ? 280 : undefined,
-                  animationDelay: `${i * 0.06}s`,
-                  animation: `slide-in-up 0.5s ease forwards`,
-                  opacity: 0,
-                }}
+                className={`${
+                  viewMode === `grid`
+                    ? `w-[calc(33.33%-14px)] min-w-[280px]`
+                    : `w-full`
+                } animate-[slide-in-up_0.5s_ease_forwards] opacity-0`}
+                style={{ animationDelay: `${i * 0.06}s` }}
               >
                 <BlogCard post={post} variant={viewMode === `list` ? `compact` : `default`} />
               </div>
@@ -299,8 +286,7 @@ const Explore = () => {
             <button
               onClick={handleLoadMore}
               disabled={loading}
-              className="btn-ghost-glass px-10 py-3.5 rounded-2xl text-sm font-medium"
-              style={{ opacity: loading ? 0.5 : 1 }}
+              className="btn-ghost px-10 py-3.5 rounded-2xl text-sm font-medium disabled:opacity-50"
             >
               {loading ? `加载中...` : `Load More`}
             </button>

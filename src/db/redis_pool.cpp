@@ -5,6 +5,20 @@
 #include <winsock2.h>
 #endif
 
+#include <chrono>
+
+namespace {
+
+// @cuiruoni+P0修复：Redis故障后的重试间隔，期间直接快速失败，避免每个请求阻塞1秒
+constexpr std::int64_t kRedisRetryAfterMs = 5000;
+
+std::int64_t now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+} // namespace
+
 RedisPool& RedisPool::instance() {
     static RedisPool pool;
     return pool;
@@ -22,6 +36,11 @@ void RedisPool::init(const std::string& host, int port,
         if (ctx) pool_.push(ctx);
     }
     spdlog::info("Redis pool initialized with {} connections", pool_.size());
+    if (pool_.empty()) {
+        degraded_.store(true);
+        retry_until_ms_.store(now_ms() + kRedisRetryAfterMs);
+        spdlog::warn("Redis pool has no connections, entering degraded mode");
+    }
 }
 
 redisContext* RedisPool::create_connection() {
@@ -56,7 +75,20 @@ redisContext* RedisPool::get() {
         pool_.pop();
         return ctx;
     }
-    return create_connection();
+    // @cuiruoni+P0修复：熔断期间快速失败，不阻塞连接超时；到重试时间后再尝试一次
+    if (degraded_.load() && now_ms() < retry_until_ms_.load()) {
+        spdlog::debug("Redis pool degraded, skipping connection attempt");
+        return nullptr;
+    }
+    auto ctx = create_connection();
+    if (!ctx) {
+        degraded_.store(true);
+        retry_until_ms_.store(now_ms() + kRedisRetryAfterMs);
+    } else {
+        degraded_.store(false);
+        retry_until_ms_.store(0);
+    }
+    return ctx;
 }
 
 void RedisPool::release(redisContext* ctx) {
@@ -83,6 +115,12 @@ void RedisPool::close() {
 // @cuiruoni+连接池健康检查：PING验证每个连接，失效则移除并尝试重建
 bool RedisPool::health_check() {
     std::lock_guard<std::mutex> lock(mutex_);
+    // @cuiruoni+P0修复：熔断期间跳过健康检查，避免健康检查被阻塞
+    if (pool_.empty() && degraded_.load() && now_ms() < retry_until_ms_.load()) {
+        spdlog::warn("Redis health check skipped (degraded mode)");
+        return false;
+    }
+
     std::queue<redisContext*> healthy;
     int checked = 0, failed = 0;
 

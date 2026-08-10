@@ -8,6 +8,39 @@
 
 namespace auth_service {
 
+// @cuiruoni+P2修复：优先读Authorization: Bearer，其次读HttpOnly Cookie中的blog_token
+std::string extract_token_from_request(const http::request<http::string_body>& req) {
+    auto auth = req.find(http::field::authorization);
+    if (auth != req.end()) {
+        std::string value(auth->value());
+        if (value.size() > 7 && value.substr(0, 7) == "Bearer ") {
+            return value.substr(7);
+        }
+    }
+
+    auto cookie_it = req.find(http::field::cookie);
+    if (cookie_it != req.end()) {
+        std::string cookies(cookie_it->value());
+        size_t pos = 0;
+        while (pos <= cookies.size()) {
+            size_t semi = cookies.find(';', pos);
+            std::string pair = cookies.substr(pos, semi == std::string::npos ? std::string::npos : semi - pos);
+            auto eq = pair.find('=');
+            if (eq != std::string::npos) {
+                std::string name = pair.substr(0, eq);
+                name.erase(0, name.find_first_not_of(" \t"));
+                name.erase(name.find_last_not_of(" \t") + 1);
+                if (name == "blog_token") {
+                    return pair.substr(eq + 1);
+                }
+            }
+            if (semi == std::string::npos) break;
+            pos = semi + 1;
+        }
+    }
+    return "";
+}
+
 // @cuiruoni+生成JWT token，包含issuer、subject(user_id)、username、role声明
 // @cuiruoni+使用HS256算法签名，过期时间从配置读取
 std::string generate_token(int64_t user_id, const std::string& username, const std::string& role) {
@@ -73,9 +106,8 @@ void blacklist_token(const std::string& token, int ttl_seconds) {
 // @cuiruoni+从HTTP请求Authorization头提取Bearer token并验证
 bool extract_user_from_token(const http::request<http::string_body>& req,
                              int64_t& user_id, std::string& username, std::string& role) {
-    std::string auth_field(req[http::field::authorization]);
-    if (auth_field.empty() || auth_field.substr(0, 7) != "Bearer ") return false;
-    std::string token = auth_field.substr(7);
+    std::string token = extract_token_from_request(req);
+    if (token.empty()) return false;
     return validate_token(token, user_id, username, role);
 }
 

@@ -9,6 +9,10 @@ namespace json = boost::json;
 // @cuiruoni+通知数据访问对象，封装所有通知相关的数据库操作
 namespace notification_dao {
 
+// @cuiruoni+插入一条通知（评论/点赞/关注/系统/提及）
+bool insert(int64_t user_id, const std::string& type, const std::string& actor_name,
+            const std::string& content, const std::string& post_title);
+
 // @cuiruoni+查询用户的通知列表
 json::array list_by_user_id(int64_t user_id);
 

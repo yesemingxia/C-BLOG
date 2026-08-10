@@ -53,7 +53,7 @@ void Server::accept() {
                 }
                 return;
             }
-            spdlog::info("New connection accepted");
+            spdlog::debug("New connection accepted");
             // @cuiruoni+为每个连接创建独立Session，shared_from_this保证生命周期
             std::make_shared<Session>(std::move(socket), router_)->run();
             accept(); // @cuiruoni+递归注册下一次accept，形成持续监听循环

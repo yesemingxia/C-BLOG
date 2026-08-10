@@ -11,7 +11,8 @@ json::array list_by_post_id(int64_t post_id) {
 
     try {
         auto result = sess->sql(
-            "SELECT id, post_id, author_name, author_email, content, parent_id, created_at "
+            "SELECT id, post_id, author_name, author_email, content, parent_id, "
+            "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at "
             "FROM comments WHERE post_id = ? ORDER BY created_at ASC")
             .bind(post_id).execute();
 
@@ -95,7 +96,7 @@ json::array admin_list_comments(int page, int page_size, int& total) {
         int offset = (page - 1) * page_size;
         auto result = sess->sql(
             "SELECT c.id, c.post_id, c.author_name, c.author_email, c.content, "
-            "c.parent_id, c.created_at, p.title "
+            "c.parent_id, DATE_FORMAT(c.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, p.title "
             "FROM comments c LEFT JOIN posts p ON c.post_id = p.id "
             "ORDER BY c.created_at DESC LIMIT ? OFFSET ?")
             .bind(page_size).bind(offset).execute();

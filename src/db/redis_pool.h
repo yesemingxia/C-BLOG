@@ -1,6 +1,8 @@
 #pragma once
 
 #include <hiredis/hiredis.h>
+#include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -56,4 +58,6 @@ private:
 
     std::mutex mutex_;       // @cuiruoni+互斥锁保护pool_队列的并发访问
     std::queue<redisContext*> pool_; // @cuiruoni+空闲连接队列，裸指针需手动管理生命周期
+    std::atomic<bool> degraded_{false};          // @cuiruoni+P0修复：Redis故障熔断标记
+    std::atomic<std::int64_t> retry_until_ms_{0}; // @cuiruoni+P0修复：下次重试时间戳（steady_clock毫秒）
 };

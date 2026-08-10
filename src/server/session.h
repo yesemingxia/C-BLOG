@@ -31,6 +31,7 @@ private:
     beast::tcp_stream stream_;                   // @cuiruoni+TCP流，封装socket支持超时等特性
     beast::flat_buffer buffer_;                   // @cuiruoni+扁平缓冲区，存储原始请求字节
     http::request<http::string_body> req_;        // @cuiruoni+当前请求对象
+    std::unique_ptr<http::request_parser<http::string_body>> parser_; // @cuiruoni+P0修复：请求解析器，内置body_limit防超大请求
     http::response<http::string_body> res_;       // @cuiruoni+当前响应对象
     Router& router_;                              // @cuiruoni+路由器引用，用于请求分发
     bool keep_alive_ = false;                     // @cuiruoni+是否保持连接复用

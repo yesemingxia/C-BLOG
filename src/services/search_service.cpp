@@ -11,7 +11,8 @@ namespace search_service {
 // @cuiruoni+将keyword转为安全的Redis key：只保留字母数字，其余转hex，截断到100字符
 static std::string sanitize_cache_key(const std::string& keyword) {
     std::ostringstream oss;
-    oss << "search:";
+    // @cuiruoni+P0安全修复：v2版本号使修复前的旧缓存（可能含草稿）立即失效
+    oss << "search:v2:";
     for (unsigned char c : keyword) {
         if (std::isalnum(c)) {
             oss << static_cast<char>(c);

@@ -11,7 +11,9 @@ namespace json = boost::json;
 namespace post_dao {
 
 // @cuiruoni+分页查询文章列表，支持按status过滤，返回文章摘要信息
-json::array list_posts(int page, int page_size, const std::string& status, int& total);
+// @cuiruoni+viewer_id/is_admin用于权限过滤：草稿只对作者本人（或管理员）可见
+json::array list_posts(int page, int page_size, const std::string& status, int& total,
+                       int64_t viewer_id = 0, bool is_admin = false);
 
 // @cuiruoni+根据ID查询文章详情
 Post find_by_id(int64_t id);
@@ -48,5 +50,20 @@ int64_t count_all();
 
 // @cuiruoni+按状态统计文章数
 int64_t count_by_status(const std::string& status);
+
+// @cuiruoni+点赞/收藏统计与状态
+int64_t count_likes(int64_t post_id);
+int64_t count_bookmarks(int64_t post_id);
+int64_t count_comments(int64_t post_id);
+bool is_liked(int64_t post_id, int64_t user_id);
+bool is_bookmarked(int64_t post_id, int64_t user_id);
+bool add_like(int64_t post_id, int64_t user_id);
+bool remove_like(int64_t post_id, int64_t user_id);
+bool add_bookmark(int64_t post_id, int64_t user_id);
+bool remove_bookmark(int64_t post_id, int64_t user_id);
+
+// @cuiruoni+当前用户点赞/收藏过的已发布文章列表
+json::array list_liked_posts(int64_t user_id, int page, int page_size, int& total);
+json::array list_bookmarked_posts(int64_t user_id, int page, int page_size, int& total);
 
 }

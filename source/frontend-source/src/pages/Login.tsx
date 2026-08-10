@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useMatch } from "react-router-dom";
-import { Eye, EyeOff, Mail, Lock, User, Sparkles, ArrowRight, Github, Twitter, ChevronLeft } from "lucide-react";
+import { Eye, EyeOff, Mail, Lock, User, Sparkles, ArrowRight, ChevronLeft } from "lucide-react";
 import GlassBackground from "../components/layout/GlassBackground";
 import { useAuth } from "../components/auth/AuthProvider";
 import { toast } from "sonner";
@@ -46,7 +46,7 @@ const Login = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden bg-background">
-      <GlassBackground showParticles={true} />
+      <GlassBackground />
 
       <button
         onClick={() => navigate("/")}
@@ -58,13 +58,14 @@ const Login = () => {
 
       <div className="w-full max-w-[440px] z-10 animate-in fade-in zoom-in-95 duration-700">
         <div className="bento-card p-8 md:p-10 relative overflow-hidden shadow-2xl">
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-1 bg-gradient-to-r from-[var(--neon-purple)] to-[var(--neon-blue)] rounded-full blur-md opacity-50" />
+          {/* Top accent line */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-1 bg-[var(--foreground)] rounded-full blur-md opacity-30" />
 
           <div className="text-center mb-10">
-            <div className="w-16 h-16 rounded-2xl mx-auto mb-6 bg-linear-to-br from-[var(--neon-purple)] to-[var(--neon-blue)] flex items-center justify-center shadow-lg shadow-purple-500/20 animate-pulse-glow">
-              <Sparkles size={32} className="text-white fill-white/20" />
+            <div className="w-16 h-16 rounded-2xl mx-auto mb-6 bg-[var(--foreground)] text-[var(--background)] flex items-center justify-center shadow-lg animate-pulse-glow">
+              <Sparkles size={32} className="text-[var(--background)]" />
             </div>
-            <h1 className="text-3xl font-black tracking-tight mb-2" style={{ fontFamily: "var(--font-display)" }}>
+            <h1 className="text-3xl font-black tracking-tight mb-2 font-[family-name:var(--font-display)]">
               {isLogin ? "Welcome Back" : "Join Blog"}
             </h1>
             <p className="text-sm text-foreground/40 font-medium">
@@ -72,27 +73,12 @@ const Login = () => {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 mb-8">
-            <button onClick={() => toast.info("GitHub 登录功能即将上线")} className="btn-ghost-glass flex items-center justify-center gap-3 py-3 rounded-2xl text-sm font-bold">
-              <Github size={18} /> GitHub
-            </button>
-            <button onClick={() => toast.info("Twitter 登录功能即将上线")} className="btn-ghost-glass flex items-center justify-center gap-3 py-3 rounded-2xl text-sm font-bold">
-              <Twitter size={18} className="text-sky-400 fill-sky-400/10" /> Twitter
-            </button>
-          </div>
-
-          <div className="flex items-center gap-4 mb-8">
-            <div className="h-px flex-1 bg-foreground/10" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-foreground/30">or use username</span>
-            <div className="h-px flex-1 bg-foreground/10" />
-          </div>
-
           <form onSubmit={handleSubmit} className="space-y-4">
             {!isLogin && (
               <div className="space-y-1.5 animate-in slide-in-from-top-2 duration-300">
                 <label htmlFor="reg-username" className="text-xs font-bold text-foreground/40 ml-1">Username</label>
                 <div className="relative group">
-                  <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-foreground/20 group-focus-within:text-[var(--neon-purple)] transition-colors" />
+                  <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-foreground/20 group-focus-within:text-[var(--foreground)] transition-colors" />
                   <input id="reg-username" type="text" placeholder="Your nickname" value={username} onChange={(e) => setUsername(e.target.value)} className="glass-input w-full pl-12 pr-4 py-3.5 rounded-2xl text-sm font-medium" required={!isLogin} />
                 </div>
               </div>
@@ -101,7 +87,7 @@ const Login = () => {
             <div className="space-y-1.5">
               <label htmlFor="login-email" className="text-xs font-bold text-foreground/40 ml-1">Username or Email</label>
               <div className="relative group">
-                <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-foreground/20 group-focus-within:text-[var(--neon-purple)] transition-colors" />
+                <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-foreground/20 group-focus-within:text-[var(--foreground)] transition-colors" />
                 <input id="login-email" type="text" placeholder="username or name@example.com" value={email} onChange={(e) => setEmail(e.target.value)} className="glass-input w-full pl-12 pr-4 py-3.5 rounded-2xl text-sm font-medium" required />
               </div>
             </div>
@@ -109,10 +95,9 @@ const Login = () => {
             <div className="space-y-1.5">
               <div className="flex justify-between items-center ml-1">
                 <label htmlFor="login-pwd" className="text-xs font-bold text-foreground/40">Password</label>
-                {isLogin && <button type="button" className="text-[10px] font-black uppercase text-[var(--neon-purple)] hover:underline">Forgot password?</button>}
               </div>
               <div className="relative group">
-                <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-foreground/20 group-focus-within:text-[var(--neon-purple)] transition-colors" />
+                <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-foreground/20 group-focus-within:text-[var(--foreground)] transition-colors" />
                 <input id="login-pwd" type={showPwd ? "text" : "password"} placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} className="glass-input w-full pl-12 pr-12 py-3.5 rounded-2xl text-sm font-medium" required />
                 <button type="button" aria-label={showPwd ? "Hide password" : "Show password"} onClick={() => setShowPwd(!showPwd)} className="absolute right-4 top-1/2 -translate-y-1/2 text-foreground/20 hover:text-foreground transition-colors">
                   {showPwd ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -120,9 +105,9 @@ const Login = () => {
               </div>
             </div>
 
-            <button type="submit" disabled={loading} className="btn-primary-glass w-full py-4 rounded-2xl text-sm font-black text-white flex items-center justify-center gap-3 mt-4 disabled:opacity-50">
+            <button type="submit" disabled={loading} className="btn-primary w-full py-4 rounded-2xl text-sm font-black flex items-center justify-center gap-3 mt-4 disabled:opacity-50">
               {loading ? (
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <div className="w-5 h-5 border-2 border-[var(--primary-foreground)]/30 border-t-[var(--primary-foreground)] rounded-full animate-spin" />
               ) : (
                 <>
                   {isLogin ? "Sign In" : "Create Account"}
@@ -135,7 +120,7 @@ const Login = () => {
           <div className="text-center mt-8 pt-6 border-t border-foreground/10">
             <p className="text-sm text-foreground/40 font-medium">
               {isLogin ? "Don't have an account?" : "Already have an account?"}
-              <button onClick={() => setIsLogin(!isLogin)} className="ml-2 text-[var(--neon-purple)] font-black hover:underline">
+              <button onClick={() => setIsLogin(!isLogin)} className="ml-2 text-[var(--foreground)] font-black hover:underline">
                 {isLogin ? "Sign Up" : "Sign In"}
               </button>
             </p>

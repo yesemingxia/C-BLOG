@@ -22,13 +22,13 @@ interface Notification {
 
 const notifs: Notification[] = [];
 
-// @cuiruoni+通知类型配置：每种类型对应独立的图标、颜色和背景色，用于渲染差异化样式
-const typeConfig: Record<NotifType, { icon: typeof Bell; color: string; bg: string }> = {
-  like: { icon: Heart, color: `#f472b6`, bg: `rgba(244,114,182,0.12)` },
-  comment: { icon: MessageCircle, color: `#38bdf8`, bg: `rgba(56,189,248,0.12)` },
-  follow: { icon: UserPlus, color: `#34d399`, bg: `rgba(52,211,153,0.12)` },
-  system: { icon: Star, color: `#f59e0b`, bg: `rgba(245,158,11,0.12)` },
-  mention: { icon: Bell, color: `#a78bfa`, bg: `rgba(167,139,250,0.12)` },
+// @cuiruoni+通知类型配置：每种类型对应独立的图标，统一使用monochrome样式
+const typeConfig: Record<NotifType, { icon: typeof Bell }> = {
+  like: { icon: Heart },
+  comment: { icon: MessageCircle },
+  follow: { icon: UserPlus },
+  system: { icon: Star },
+  mention: { icon: Bell },
 };
 
 const filterOptions = [`全部`, `点赞`, `评论`, `关注`, `系统`];
@@ -92,7 +92,7 @@ const Notifications = () => {
 
   return (
     <div data-cmp="Notifications" className="min-h-screen relative">
-      <GlassBackground showParticles={false} />
+      <GlassBackground />
       <Navbar isLoggedIn={isLoggedIn} onLogout={handleLogout} onLogin={() => navigate(`/login`)} />
 
       <div className="relative z-10" style={{ paddingTop: 64 }}>
@@ -100,27 +100,26 @@ const Notifications = () => {
           {/* Header */}
           <div className="flex items-center justify-between mb-8">
             <div>
-              <h1 className="text-2xl font-black text-foreground flex items-center gap-3">
-                <Bell size={22} style={{ color: `#7c6aff` }} />
+              <h1 className="text-2xl font-black text-[var(--foreground)] flex items-center gap-3">
+                <Bell size={22} />
                 通知中心
                 <div className={unreadCount > 0 ? `` : `hidden`}>
                   <span
-                    className="text-sm px-2.5 py-0.5 rounded-full font-semibold"
-                    style={{ background: `rgba(244,114,182,0.2)`, color: `#f472b6` }}
+                    className="text-sm px-2.5 py-0.5 rounded-full font-semibold bg-[var(--brand-subtle)] text-[var(--foreground)]"
                   >
                     {unreadCount}
                   </span>
                 </div>
               </h1>
-              <p className="text-sm mt-1 text-foreground/45">
-                {unreadCount > 0 ? `你有 ${unreadCount} 条未读通知` : `所有通知都已读完啦 ✓`}
+              <p className="text-sm mt-1 text-[var(--muted-foreground)]">
+                {unreadCount > 0 ? `你有 ${unreadCount} 条未读通知` : `所有通知都已读完啦`}
               </p>
             </div>
 
             <div className="flex items-center gap-3">
               <button
                 onClick={markAllRead}
-                className="btn-ghost-glass flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-foreground"
+                className="btn-ghost flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-[var(--foreground)]"
               >
                 <CheckCheck size={14} />
                 全部已读
@@ -130,17 +129,16 @@ const Notifications = () => {
 
           {/* Filter tabs */}
           <div className="flex items-center gap-2 mb-6 flex-wrap">
-            <Filter size={14} style={{ color: `rgba(var(--foreground-rgb),0.4)` }} />
+            <Filter size={14} className="text-[var(--muted-foreground)]" />
             {filterOptions.map((opt) => (
               <button
                 key={opt}
                 onClick={() => setFilter(opt)}
-                className="px-4 py-2 rounded-xl text-sm font-medium transition-all"
-                style={{
-                  background: filter === opt ? `rgba(124,106,255,0.15)` : `rgba(var(--foreground-rgb),0.04)`,
-                  color: filter === opt ? `#a78bfa` : `rgba(var(--foreground-rgb),0.6)`,
-                  border: `1px solid ${filter === opt ? `rgba(124,106,255,0.3)` : `rgba(var(--foreground-rgb),0.06)`}`,
-                }}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all border ${
+                  filter === opt
+                    ? "bg-[var(--brand-subtle)] text-[var(--foreground)] border-[var(--border-strong)]"
+                    : "bg-[var(--muted)] text-[var(--muted-foreground)] border-[var(--border)]"
+                }`}
               >
                 {opt}
               </button>
@@ -156,11 +154,12 @@ const Notifications = () => {
                 <div
                   key={notif.id}
                   onClick={() => markRead(notif.id)}
-                  className="relative rounded-2xl overflow-hidden cursor-pointer transition-all group"
+                  className={`relative rounded-2xl overflow-hidden cursor-pointer transition-all group border ${
+                    notif.read
+                      ? "bg-[var(--card)] border-[var(--border)]"
+                      : "bg-[var(--brand-subtle)] border-[var(--border-strong)]"
+                  }`}
                   style={{
-                    background: notif.read ? `rgba(var(--foreground-rgb),0.03)` : `rgba(124,106,255,0.06)`,
-                    border: `1px solid ${notif.read ? `rgba(var(--foreground-rgb),0.06)` : `rgba(124,106,255,0.15)`}`,
-                    backdropFilter: `blur(12px)`,
                     animationDelay: `${i * 0.05}s`,
                     animation: `slide-in-up 0.4s ease forwards`,
                     opacity: 0,
@@ -168,9 +167,8 @@ const Notifications = () => {
                 >
                   {/* Unread indicator */}
                   <div
-                    className="absolute left-0 top-0 bottom-0 w-0.5"
+                    className="absolute left-0 top-0 bottom-0 w-0.5 bg-[var(--foreground)]"
                     style={{
-                      background: `linear-gradient(to bottom, #7c6aff, #38bdf8)`,
                       opacity: notif.read ? 0 : 1,
                     }}
                   />
@@ -178,34 +176,31 @@ const Notifications = () => {
                   <div className="flex items-start gap-4 p-4 pl-5">
                     {/* Icon */}
                     <div
-                      className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"
-                      style={{ background: cfg.bg }}
+                      className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 bg-[var(--muted)] text-[var(--muted-foreground)]"
                     >
-                      <IconComp size={18} style={{ color: cfg.color }} />
+                      <IconComp size={18} />
                     </div>
 
                     {/* User avatar + content */}
                     <div className="flex items-start gap-3 flex-1 min-w-0">
                       <div
-                        className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-bold"
-                        style={{ background: `linear-gradient(135deg, #7c6aff, #38bdf8)` }}
+                        className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-bold bg-[var(--foreground)] text-[var(--background)]"
                       >
                         {notif.type === `system` ? `⚡` : notif.userAvatar}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm text-foreground">
+                        <div className="text-sm text-[var(--foreground)]">
                           <span className="font-semibold">{notif.user}</span>
-                          <span className="ml-1" style={{ color: `rgba(var(--foreground-rgb),0.7)` }}>{notif.content}</span>
+                          <span className="ml-1 text-[var(--muted-foreground)]">{notif.content}</span>
                         </div>
                         <div className={notif.postTitle ? `mt-1` : `hidden`}>
                           <span
-                            className="text-xs px-2 py-1 rounded-lg"
-                            style={{ background: `rgba(124,106,255,0.1)`, color: `#a78bfa` }}
+                            className="text-xs px-2 py-1 rounded-lg bg-[var(--brand-subtle)] text-[var(--foreground)]"
                           >
                             《{notif.postTitle}》
                           </span>
                         </div>
-                        <div className="text-xs mt-1.5" style={{ color: `rgba(var(--foreground-rgb),0.35)` }}>
+                        <div className="text-xs mt-1.5 text-[var(--muted-foreground)]">
                           {notif.time}
                         </div>
                       </div>
@@ -216,18 +211,18 @@ const Notifications = () => {
                       <div className={notif.read ? `hidden` : ``}>
                         <button
                           onClick={(e) => { e.stopPropagation(); markRead(notif.id); }}
-                          className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-foreground/10"
+                          className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-[var(--brand-subtle)]"
                           title="标为已读"
                         >
-                          <Check size={13} style={{ color: `#34d399` }} />
+                          <Check size={13} className="text-[var(--success)]" />
                         </button>
                       </div>
                       <button
                         onClick={(e) => { e.stopPropagation(); deleteItem(notif.id); }}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-foreground/10"
+                        className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-[var(--brand-subtle)]"
                         title="删除"
                       >
-                        <Trash2 size={13} style={{ color: `rgba(var(--foreground-rgb),0.4)` }} />
+                        <Trash2 size={13} className="text-[var(--muted-foreground)]" />
                       </button>
                     </div>
                   </div>
@@ -239,8 +234,8 @@ const Notifications = () => {
           {/* Empty state */}
           <div className={filtered.length === 0 ? `text-center py-20` : `hidden`}>
             <div className="text-5xl mb-4">🔔</div>
-            <div className="text-foreground font-medium mb-2">暂无通知</div>
-            <div className="text-sm" style={{ color: `rgba(var(--foreground-rgb),0.4)` }}>
+            <div className="text-[var(--foreground)] font-medium mb-2">暂无通知</div>
+            <div className="text-sm text-[var(--muted-foreground)]">
               继续创作，等待读者的互动吧！
             </div>
           </div>

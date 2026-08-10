@@ -36,6 +36,12 @@ std::shared_ptr<mysqlx::Session> MysqlPool::create_session() {
         user_, password_, database_
     );
     auto sess = std::make_shared<mysqlx::Session>(settings);
+    // @cuiruoni+强制连接使用 utf8mb4，防止中文/特殊字符写入或读取乱码
+    try {
+        sess->sql("SET NAMES utf8mb4").execute();
+    } catch (const std::exception& e) {
+        spdlog::warn("Failed to set connection charset to utf8mb4: {}", e.what());
+    }
     return sess;
 }
 

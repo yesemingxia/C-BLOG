@@ -34,6 +34,22 @@ const Post = () => {
     queryFn: () => commentsApi.list(postId),
   });
 
+  // @cuiruoni+P1修复：相关推荐改为真实数据（按共享标签匹配），替换硬编码假数据
+  const { data: relatedPool = [] } = useQuery({
+    queryKey: ["posts", "related-pool"],
+    queryFn: () => postsApi.list(1, 12),
+    enabled: !!post,
+  });
+  const relatedPosts = (() => {
+    const myTags = post?.tags ?? [];
+    const tagMatched = relatedPool
+      .filter((p) => p.id !== postId)
+      .filter((p) => (p.tags ?? []).some((t) => myTags.includes(t)));
+    // @cuiruoni+列表接口未返回tags时退化为"最近文章"，保证侧栏始终有真实数据
+    const fallback = relatedPool.filter((p) => p.id !== postId);
+    return (tagMatched.length > 0 ? tagMatched : fallback).slice(0, 3);
+  })();
+
   const commentMutation = useMutation({
     mutationFn: (content: string) => commentsApi.create(postId, content),
     onSuccess: (created) => {
@@ -44,35 +60,56 @@ const Post = () => {
     onError: () => toast.error("评论发布失败，请稍后重试"),
   });
 
+  // @cuiruoni+P1修复：点赞/收藏改为后端持久化，状态由文章详情接口返回
   useEffect(() => {
-    try {
-      const likedPosts = JSON.parse(localStorage.getItem("blog_liked_posts") || "[]");
-      const bookmarkedPosts = JSON.parse(localStorage.getItem("blog_bookmarked_posts") || "[]");
-      setLiked(likedPosts.includes(postId));
-      setBookmarked(bookmarkedPosts.includes(postId));
-    } catch { /* ignore */ }
-  }, [postId]);
+    setLiked(!!post?.liked);
+    setBookmarked(!!post?.bookmarked);
+  }, [post?.liked, post?.bookmarked]);
+
+  const likeMutation = useMutation({
+    mutationFn: (next: boolean) => next ? postsApi.like(postId) : postsApi.unlike(postId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["post", postId] });
+    },
+  });
+
+  const bookmarkMutation = useMutation({
+    mutationFn: (next: boolean) => next ? postsApi.bookmark(postId) : postsApi.unbookmark(postId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["post", postId] });
+    },
+  });
 
   const toggleLike = () => {
+    if (!isLoggedIn) {
+      toast.error("请先登录");
+      navigate("/login");
+      return;
+    }
     const next = !liked;
     setLiked(next);
-    try {
-      const arr: number[] = JSON.parse(localStorage.getItem("blog_liked_posts") || "[]");
-      if (next) { if (!arr.includes(postId)) arr.push(postId); }
-      else { const idx = arr.indexOf(postId); if (idx >= 0) arr.splice(idx, 1); }
-      localStorage.setItem("blog_liked_posts", JSON.stringify(arr));
-    } catch { /* ignore */ }
+    likeMutation.mutate(next, {
+      onError: () => {
+        setLiked(!next);
+        toast.error("操作失败，请稍后重试");
+      },
+    });
   };
 
   const toggleBookmark = () => {
+    if (!isLoggedIn) {
+      toast.error("请先登录");
+      navigate("/login");
+      return;
+    }
     const next = !bookmarked;
     setBookmarked(next);
-    try {
-      const arr: number[] = JSON.parse(localStorage.getItem("blog_bookmarked_posts") || "[]");
-      if (next) { if (!arr.includes(postId)) arr.push(postId); }
-      else { const idx = arr.indexOf(postId); if (idx >= 0) arr.splice(idx, 1); }
-      localStorage.setItem("blog_bookmarked_posts", JSON.stringify(arr));
-    } catch { /* ignore */ }
+    bookmarkMutation.mutate(next, {
+      onError: () => {
+        setBookmarked(!next);
+        toast.error("操作失败，请稍后重试");
+      },
+    });
   };
 
   useEffect(() => {
@@ -134,6 +171,10 @@ const Post = () => {
   })();
   const articleDate = post?.created_at?.slice(0, 10) ?? ``;
   const articleViews = post?.views ?? post?.view_count ?? 0;
+  // @cuiruoni+P2修复：阅读时长按正文实际字数计算，不再硬编码"8 min read"
+  const articleReadTime = Math.max(1, Math.ceil((post?.content_md ?? "").replace(/\s+/g, "").length / 500));
+  // @cuiruoni+P1修复：点赞数 = 服务端计数 - 服务端已赞状态 + 本地乐观状态（避免重复计数）
+  const displayLikes = (post?.like_count ?? 0) - (post?.liked ? 1 : 0) + (liked ? 1 : 0);
   const articleTags = post?.tags?.length ? post.tags : [];
   const displayComments = comments.map((comment) => ({
     id: comment.id,
@@ -147,42 +188,43 @@ const Post = () => {
 
   return (
     <div data-cmp="Post" className="min-h-screen relative">
-      <GlassBackground showParticles={false} />
+      <GlassBackground />
       <Navbar isLoggedIn={isLoggedIn} onLogout={handleLogout} onLogin={() => navigate(`/login`)} />
 
       {/* Reading progress bar */}
       <div className="reading-progress-bar" style={{ width: `${progress}%` }} />
 
-      <div className="relative z-10" style={{ paddingTop: 64 }}>
-        <div className="mx-auto px-6 py-8" style={{ maxWidth: 1440 }}>
+      <div className="relative z-10 pt-16">
+        <div className="mx-auto px-6 py-8 max-w-[1440px]">
           <div className="flex gap-8">
             {/* Left: article action sidebar */}
-            <div className="hidden xl:flex flex-col items-center gap-4 flex-shrink-0 pt-10" style={{ width: 60 }}>
-              <div className="sticky flex flex-col items-center gap-4" style={{ top: 100 }}>
+            <div className="hidden xl:flex flex-col items-center gap-4 flex-shrink-0 pt-10 w-[60px]">
+              <div className="sticky flex flex-col items-center gap-4 top-[100px]">
                 <button
                   onClick={() => toggleLike()}
                   className="flex flex-col items-center gap-1 group"
                 >
                   <div
-                    className="w-11 h-11 rounded-2xl flex items-center justify-center transition-all"
-                    style={{
-                      background: liked ? `rgba(244,114,182,0.2)` : `rgba(var(--foreground-rgb), 0.05)`,
-                      border: `1px solid ${liked ? `rgba(244,114,182,0.4)` : `rgba(var(--foreground-rgb), 0.08)`}`,
-                    }}
+                    className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-all border ${
+                      liked
+                        ? "bg-[var(--destructive-subtle)] border-[var(--destructive)]/30"
+                        : "bg-[var(--muted)] border-[var(--border)]"
+                    }`}
                   >
-                    <Heart size={18} style={{ color: liked ? `#f472b6` : `rgba(var(--foreground-rgb), 0.6)` }} fill={liked ? `#f472b6` : `none`} />
+                    <Heart
+                      size={18}
+                      className={liked ? "text-[var(--destructive)]" : "text-[var(--muted-foreground)]"}
+                      fill={liked ? "var(--destructive)" : "none"}
+                    />
                   </div>
-                  <span className="text-xs" style={{ color: "rgba(var(--foreground-rgb), 0.45)" }}>{(post?.likes ?? 0) + (liked ? 1 : 0)}</span>
+                  <span className="text-xs text-[var(--muted-foreground)]">{displayLikes}</span>
                 </button>
 
                 <button className="flex flex-col items-center gap-1">
-                  <div
-                    className="w-11 h-11 rounded-2xl flex items-center justify-center"
-                    style={{ background: `rgba(var(--foreground-rgb), 0.05)`, border: `1px solid rgba(var(--foreground-rgb), 0.08)` }}
-                  >
-                    <MessageCircle size={18} style={{ color: `rgba(var(--foreground-rgb), 0.6)` }} />
+                  <div className="w-11 h-11 rounded-2xl flex items-center justify-center bg-[var(--muted)] border border-[var(--border)]">
+                    <MessageCircle size={18} className="text-[var(--muted-foreground)]" />
                   </div>
-                  <span className="text-xs" style={{ color: `rgba(var(--foreground-rgb), 0.45)` }}>{displayComments.length}</span>
+                  <span className="text-xs text-[var(--muted-foreground)]">{displayComments.length}</span>
                 </button>
 
                 <button
@@ -190,13 +232,17 @@ const Post = () => {
                   className="flex flex-col items-center gap-1"
                 >
                   <div
-                    className="w-11 h-11 rounded-2xl flex items-center justify-center transition-all"
-                    style={{
-                      background: bookmarked ? `rgba(124,106,255,0.2)` : `rgba(var(--foreground-rgb), 0.05)`,
-                      border: `1px solid ${bookmarked ? `rgba(124,106,255,0.4)` : `rgba(var(--foreground-rgb), 0.08)`}`,
-                    }}
+                    className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-all border ${
+                      bookmarked
+                        ? "bg-[var(--brand-subtle)] border-[var(--border-strong)]"
+                        : "bg-[var(--muted)] border-[var(--border)]"
+                    }`}
                   >
-                    <Bookmark size={18} style={{ color: bookmarked ? `var(--primary)` : `rgba(var(--foreground-rgb), 0.6)` }} fill={bookmarked ? `var(--primary)` : `none`} />
+                    <Bookmark
+                      size={18}
+                      className={bookmarked ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}
+                      fill={bookmarked ? "var(--foreground)" : "none"}
+                    />
                   </div>
                 </button>
 
@@ -205,32 +251,26 @@ const Post = () => {
                     onClick={() => setShowShare(!showShare)}
                     className="flex flex-col items-center gap-1"
                   >
-                    <div
-                      className="w-11 h-11 rounded-2xl flex items-center justify-center"
-                      style={{ background: `rgba(var(--foreground-rgb), 0.05)`, border: `1px solid rgba(var(--foreground-rgb), 0.08)` }}
-                    >
-                      <Share2 size={18} style={{ color: `rgba(var(--foreground-rgb), 0.6)` }} />
+                    <div className="w-11 h-11 rounded-2xl flex items-center justify-center bg-[var(--muted)] border border-[var(--border)]">
+                      <Share2 size={18} className="text-[var(--muted-foreground)]" />
                     </div>
                   </button>
                   <div
-                    className="absolute left-14 top-0 w-44 glass rounded-xl overflow-hidden"
-                    style={{
-                      opacity: showShare ? 1 : 0,
-                      pointerEvents: showShare ? `auto` : `none`,
-                      transition: `all 0.2s`,
-                      zIndex: 50,
-                    }}
+                    className={`absolute left-14 top-0 w-44 card overflow-hidden z-50 transition-all duration-200 ${
+                      showShare
+                        ? "opacity-100 pointer-events-auto"
+                        : "opacity-0 pointer-events-none"
+                    }`}
                   >
-                    <button onClick={handleCopyLink} className="w-full flex items-center gap-2 px-4 py-3 text-sm text-foreground hover:bg-foreground/5">
+                    <button onClick={handleCopyLink} className="w-full flex items-center gap-2 px-4 py-3 text-sm text-[var(--foreground)] hover:bg-[var(--muted)]">
                       <Copy size={14} /> 复制链接
                     </button>
-                    <button onClick={() => setShowShare(false)} className="w-full flex items-center gap-2 px-4 py-3 text-sm text-foreground hover:bg-foreground/5">
-                      <Twitter size={14} style={{ color: `#38bdf8` }} /> 分享至 Twitter
+                    <button onClick={() => setShowShare(false)} className="w-full flex items-center gap-2 px-4 py-3 text-sm text-[var(--foreground)] hover:bg-[var(--muted)]">
+                      <Twitter size={14} /> 分享至 Twitter
                     </button>
                   </div>
                   <div
-                    className="fixed inset-0"
-                    style={{ zIndex: -1, pointerEvents: showShare ? `auto` : `none` }}
+                    className={`fixed inset-0 z-[-1] ${showShare ? "pointer-events-auto" : "pointer-events-none"}`}
                     onClick={() => setShowShare(false)}
                   />
                 </div>
@@ -242,7 +282,7 @@ const Post = () => {
               {/* Back btn */}
               <button
                 onClick={() => navigate("/home")}
-                className="flex items-center gap-2 text-sm mb-6 text-foreground/50 hover:text-foreground transition-colors"
+                className="flex items-center gap-2 text-sm mb-6 text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
               >
                 <ArrowLeft size={16} />
                 返回首页
@@ -262,39 +302,29 @@ const Post = () => {
 
                 <div className="flex items-center justify-between flex-wrap gap-4 mb-6">
                   <div className="flex items-center gap-3">
-                    <div
-                      className="w-10 h-10 rounded-xl flex items-center justify-center font-bold"
-                      style={{ background: `linear-gradient(135deg, var(--primary), #f472b6)` }}
-                    >
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold bg-[var(--foreground)] text-[var(--background)]">
                       {(post?.author || `匿名`).slice(0, 2).toUpperCase()}
                     </div>
                     <div>
                       <div className="font-semibold text-sm text-foreground">{post?.author || `匿名用户`}</div>
-                      <div className="text-xs" style={{ color: `rgba(var(--foreground-rgb), 0.45)` }}>{articleDate}</div>
+                      <div className="text-xs text-[var(--muted-foreground)]">{articleDate}</div>
                     </div>
-                    <button
-                      className="px-3 py-1 rounded-full text-xs font-medium transition-all"
-                      style={{
-                        background: `rgba(124,106,255,0.12)`,
-                        border: `1px solid rgba(124,106,255,0.25)`,
-                        color: `var(--primary)`,
-                      }}
-                    >
+                    <button className="px-3 py-1 rounded-full text-xs font-medium transition-all bg-[var(--brand-subtle)] border border-[var(--brand-border)] text-[var(--foreground)]">
                       + 关注
                     </button>
                   </div>
 
-                  <div className="flex items-center gap-4 text-xs" style={{ color: `rgba(var(--foreground-rgb), 0.45)` }}>
-                    <span className="flex items-center gap-1"><Clock size={12} />8 min read</span>
+                  <div className="flex items-center gap-4 text-xs text-[var(--muted-foreground)]">
+                    <span className="flex items-center gap-1"><Clock size={12} />{articleReadTime} min read</span>
                     <span className="flex items-center gap-1"><Eye size={12} />{articleViews.toLocaleString()} 阅读</span>
-                    <button className="btn-ghost-glass p-2 rounded-xl">
+                    <button className="btn-ghost p-2 rounded-xl">
                       <MoreHorizontal size={14} />
                     </button>
                   </div>
                 </div>
 
                 {/* Cover image */}
-                <div className="rounded-2xl overflow-hidden" style={{ height: 380 }}>
+                <div className="rounded-2xl overflow-hidden h-[380px]">
                   <img
                     src={post?.cover ?? `https://picsum.photos/seed/blog${postId}/1200/500`}
                     alt="封面"
@@ -304,10 +334,10 @@ const Post = () => {
               </div>
 
               {/* Article content */}
-              <div ref={contentRef} className="glass-card p-8 mb-8">
+              <div ref={contentRef} className="card p-8 mb-8">
                 <div className="prose max-w-none">
                   {loadingPost ? (
-                    <div className="text-center py-12" style={{ color: "rgba(var(--foreground-rgb), 0.45)" }}>
+                    <div className="text-center py-12 text-[var(--muted-foreground)]">
                       加载中...
                     </div>
                   ) : articleContent ? (
@@ -316,7 +346,7 @@ const Post = () => {
                       dangerouslySetInnerHTML={{ __html: articleContentWithIds }}
                     />
                   ) : (
-                    <div className="text-center py-12" style={{ color: `rgba(var(--foreground-rgb), 0.45)` }}>
+                    <div className="text-center py-12 text-[var(--muted-foreground)]">
                       文章内容为空
                     </div>
                   )}
@@ -324,93 +354,93 @@ const Post = () => {
               </div>
 
               {/* Mobile actions */}
-              <div className="xl:hidden flex items-center justify-around glass-card p-4 mb-8">
+              <div className="xl:hidden flex items-center justify-around card p-4 mb-8">
                 <button
                   onClick={() => toggleLike()}
-                  className="flex items-center gap-2 text-sm"
-                  style={{ color: liked ? `#f472b6` : `rgba(var(--foreground-rgb), 0.6)` }}
+                  className={`flex items-center gap-2 text-sm ${liked ? "text-[var(--destructive)]" : "text-[var(--muted-foreground)]"}`}
                 >
-                  <Heart size={18} fill={liked ? "#f472b6" : "none"} />
-                  {(post?.likes ?? 0) + (liked ? 1 : 0)}
+                  <Heart size={18} fill={liked ? "var(--destructive)" : "none"} />
+                  {displayLikes}
                 </button>
-                <button className="flex items-center gap-2 text-sm" style={{ color: `rgba(var(--foreground-rgb), 0.6)` }}>
+                <button className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
                   <MessageCircle size={18} />{displayComments.length}
                 </button>
                 <button
                   onClick={() => toggleBookmark()}
-                  className="flex items-center gap-2 text-sm"
-                  style={{ color: bookmarked ? `var(--primary)` : `rgba(var(--foreground-rgb), 0.6)` }}
+                  className={`flex items-center gap-2 text-sm ${bookmarked ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}`}
                 >
-                  <Bookmark size={18} fill={bookmarked ? `var(--primary)` : `none`} />
+                  <Bookmark size={18} fill={bookmarked ? "var(--foreground)" : "none"} />
                 </button>
-                <button className="flex items-center gap-2 text-sm" style={{ color: `rgba(var(--foreground-rgb), 0.6)` }}>
+                <button className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
                   <Share2 size={18} />
                 </button>
               </div>
 
               {/* Comments section */}
-              <div className="glass-card p-6">
+              <div className="card p-6">
                 <h3 className="text-lg font-bold text-foreground mb-6 flex items-center gap-2">
-                  <MessageCircle size={20} style={{ color: `var(--primary)` }} />
+                  <MessageCircle size={20} className="text-[var(--primary)]" />
                   评论 ({displayComments.length})
                 </h3>
 
                 {/* Comment input */}
-                <form onSubmit={handleComment} className="mb-8">
-                  <div className="flex gap-3">
-                    <div
-                      className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-bold"
-                      style={{ background: `linear-gradient(135deg, var(--primary), #38bdf8)` }}
-                    >
-                      Me
-                    </div>
-                    <div className="flex-1">
-                      <textarea
-                        placeholder="发表你的评论..."
-                        value={commentText}
-                        onChange={(e) => setCommentText(e.target.value)}
-                        rows={3}
-                        className="glass-input w-full px-4 py-3 rounded-xl text-sm resize-none"
-                        style={{ minHeight: 80 }}
-                      />
-                      <div className="flex justify-end mt-2">
-                        <button
-                          type="submit"
-                          disabled={!commentText.trim()}
-                          className="btn-primary-glass flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium"
-                          style={{ opacity: commentText.trim() ? 1 : 0.5 }}
-                        >
-                          <Send size={14} />
-                          发布评论
-                        </button>
+                {isLoggedIn ? (
+                  <form onSubmit={handleComment} className="mb-8">
+                    <div className="flex gap-3">
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-bold bg-[var(--foreground)] text-[var(--background)]">
+                        Me
+                      </div>
+                      <div className="flex-1">
+                        <textarea
+                          placeholder="发表你的评论..."
+                          value={commentText}
+                          onChange={(e) => setCommentText(e.target.value)}
+                          rows={3}
+                          className="glass-input w-full px-4 py-3 rounded-xl text-sm resize-none min-h-[80px]"
+                        />
+                        <div className="flex justify-end mt-2">
+                          <button
+                            type="submit"
+                            disabled={!commentText.trim()}
+                            className="btn-primary flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium disabled:opacity-50"
+                          >
+                            <Send size={14} />
+                            发布评论
+                          </button>
+                        </div>
                       </div>
                     </div>
+                  </form>
+                ) : (
+                  // @cuiruoni+P1修复：未登录时不再显示可提交的评论框，改为登录引导
+                  <div className="mb-8 p-4 rounded-xl bg-[var(--muted)] text-center text-sm text-[var(--muted-foreground)]">
+                    登录后即可发表评论
+                    <button
+                      onClick={() => navigate(`/login`)}
+                      className="ml-2 btn-primary px-4 py-1.5 rounded-lg text-xs font-semibold"
+                    >
+                      去登录
+                    </button>
                   </div>
-                </form>
+                )}
 
                 {/* Comments list */}
                 <div className="flex flex-col gap-6">
                   {displayComments.map((comment) => (
                     <div key={comment.id}>
                       <div className="flex gap-3">
-                        <div
-                          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-bold"
-                          style={{ background: `linear-gradient(135deg, #38bdf8, var(--primary))` }}
-                        >
+                        <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-bold bg-[var(--foreground)] text-[var(--background)]">
                           {comment.avatar}
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-sm font-semibold text-foreground">{comment.author}</span>
-                            <span className="text-xs" style={{ color: `rgba(var(--foreground-rgb), 0.35)` }}>{comment.time}</span>
+                            <span className="text-xs text-[var(--muted-foreground)]">{comment.time}</span>
                           </div>
-                          <p className="text-sm leading-relaxed mb-2" style={{ color: `rgba(var(--foreground-rgb), 0.75)` }}>
+                          <p className="text-sm leading-relaxed mb-2 text-[var(--muted-foreground)]">
                             {comment.content}
                           </p>
-                          <button
-                            className="flex items-center gap-1.5 text-xs transition-colors"
-                            style={{ color: `rgba(var(--foreground-rgb), 0.45)` }}
-                          >
+                          <button className="flex items-center gap-1.5 text-xs transition-colors text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
                             <ThumbsUp size={12} />
                             {comment.likes}
                             <span className="ml-2">回复</span>
@@ -420,24 +450,18 @@ const Post = () => {
                           <div className="mt-4 ml-4 flex flex-col gap-4">
                             {comment.replies.map((reply) => (
                               <div key={reply.id} className="flex gap-3">
-                                <div
-                                  className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-xs font-bold"
-                                  style={{ background: `linear-gradient(135deg, var(--primary), #f472b6)` }}
-                                >
+                                <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-xs font-bold bg-[var(--foreground)] text-[var(--background)]">
                                   {reply.avatar}
                                 </div>
                                 <div className="flex-1">
                                   <div className="flex items-center gap-2 mb-1">
                                     <span className="text-sm font-semibold text-foreground">{reply.author}</span>
-                                    <span className="text-xs" style={{ color: `rgba(var(--foreground-rgb), 0.35)` }}>{reply.time}</span>
-                                    <span
-                                      className="text-xs px-2 py-0.5 rounded-full"
-                                      style={{ background: `rgba(124,106,255,0.1)`, color: `var(--primary)` }}
-                                    >
+                                    <span className="text-xs text-[var(--muted-foreground)]">{reply.time}</span>
+                                    <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--brand-subtle)] text-[var(--foreground)]">
                                       作者
                                     </span>
                                   </div>
-                                  <p className="text-sm leading-relaxed" style={{ color: `rgba(var(--foreground-rgb), 0.7)` }}>
+                                  <p className="text-sm leading-relaxed text-[var(--muted-foreground)]">
                                     {reply.content}
                                   </p>
                                 </div>
@@ -454,11 +478,11 @@ const Post = () => {
             </div>
 
             {/* Right: TOC sidebar */}
-            <div className="hidden xl:block flex-shrink-0" style={{ width: 220 }}>
-              <div className="sticky" style={{ top: 88 }}>
-                <div className="glass-card p-5">
+            <div className="hidden xl:block flex-shrink-0 w-[220px]">
+              <div className="sticky top-[88px]">
+                <div className="card p-5">
                   <div className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
-                    <Link size={14} style={{ color: `var(--primary)` }} />
+                    <Link size={14} className="text-[var(--primary)]" />
                     目录
                   </div>
                   <div className="flex flex-col gap-1">
@@ -469,46 +493,47 @@ const Post = () => {
                           const el = document.getElementById(item.id);
                           if (el) el.scrollIntoView({ behavior: `smooth`, block: `start` });
                         }}
-                        className="text-left text-xs py-1.5 px-3 rounded-lg transition-colors hover:bg-foreground/5"
-                        style={{
-                          paddingLeft: item.level === 3 ? `1.5rem` : `0.75rem`,
-                          color: i === 0 ? `var(--primary)` : `rgba(var(--foreground-rgb), 0.55)`,
-                          borderLeft: i === 0 ? `2px solid var(--primary)` : `2px solid transparent`,
-                        }}
+                        className={`text-left text-xs py-1.5 px-3 rounded-lg transition-colors hover:bg-[var(--muted)] ${
+                          i === 0
+                            ? "text-[var(--foreground)] border-l-2 border-[var(--foreground)]"
+                            : "text-[var(--muted-foreground)] border-l-2 border-transparent"
+                        }`}
+                        style={{ paddingLeft: item.level === 3 ? `1.5rem` : `0.75rem` }}
                       >
                         {item.title}
                       </button>
                     )) : (
-                      <span className="text-xs" style={{ color: `rgba(var(--foreground-rgb), 0.35)` }}>暂无目录</span>
+                      <span className="text-xs text-[var(--muted-foreground)]">暂无目录</span>
                     )}
                   </div>
                 </div>
 
                 {/* Related posts */}
-                <div className="glass-card p-5 mt-4">
+                <div className="card p-5 mt-4">
                   <div className="text-sm font-semibold text-foreground mb-4">相关推荐</div>
-                  {[
-                    { title: `CSS 液态玻璃效果完全指南`, views: `8.9K` },
-                    { title: `TypeScript 5.0 类型体操`, views: `4.2K` },
-                  ].map((item, i) => (
-                    <div
-                      key={i}
-                      onClick={() => navigate(`/home`)}
-                      className="flex items-start gap-2 py-2.5 cursor-pointer group"
-                    >
-                      <span className="text-xs font-black flex-shrink-0 mt-0.5" style={{ color: `var(--primary)` }}>
-                        {String(i + 1).padStart(2, `0`)}
-                      </span>
-                      <div>
-                        <p className="text-xs leading-snug group-hover:text-purple-300 transition-colors" style={{ color: `rgba(var(--foreground-rgb), 0.75)` }}>
-                          {item.title}
-                        </p>
-                        <span className="text-xs mt-0.5" style={{ color: `rgba(var(--foreground-rgb), 0.35)` }}>
-                          {item.views} 阅读
+                  {relatedPosts.length > 0 ? (
+                    relatedPosts.map((item, i) => (
+                      <div
+                        key={item.id}
+                        onClick={() => navigate(`/post/${item.id}`)}
+                        className="flex items-start gap-2 py-2.5 cursor-pointer group"
+                      >
+                        <span className="text-xs font-black flex-shrink-0 mt-0.5 text-[var(--primary)]">
+                          {String(i + 1).padStart(2, `0`)}
                         </span>
+                        <div>
+                          <p className="text-xs leading-snug group-hover:text-[var(--foreground)] transition-colors text-[var(--muted-foreground)]">
+                            {item.title}
+                          </p>
+                          <span className="text-xs mt-0.5 text-[var(--muted-foreground)]">
+                            {item.views ?? 0} 阅读
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  ) : (
+                    <span className="text-xs text-[var(--muted-foreground)]">暂无相关文章</span>
+                  )}
                 </div>
               </div>
             </div>

@@ -1,7 +1,7 @@
 #include "utils/logger.h"
 
 #include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/dist_sink.h>
 #include <vector>
 
@@ -14,9 +14,10 @@ void Logger::init(const std::string& level, const std::string& log_file) {
     console_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
     sinks.push_back(console_sink);
 
-    // @cuiruoni+可选文件sink：配置了log_file时启用，追加写入
+    // @cuiruoni+P2修复：可选文件sink改为滚动日志（5MB × 3个文件），避免日志无限增长
     if (!log_file.empty()) {
-        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_file, true);
+        auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+            log_file, 5 * 1024 * 1024, 3);
         file_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
         sinks.push_back(file_sink);
     }

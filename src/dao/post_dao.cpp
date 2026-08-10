@@ -7,29 +7,70 @@
 
 namespace post_dao {
 
-json::array list_posts(int page, int page_size, const std::string& status, int& total) {
+json::array list_posts(int page, int page_size, const std::string& status, int& total,
+                       int64_t viewer_id, bool is_admin) {
     auto sess = MysqlPool::instance().acquire();
     if (!sess) return json::array{};
 
     std::string count_sql = "SELECT COUNT(*) FROM posts";
-    std::string list_sql = "SELECT id, title, summary, user_id, status, view_count, created_at, updated_at FROM posts";
-    if (status != "all") {
+    std::string list_sql = "SELECT p.id, p.title, p.summary, p.user_id, p.status, p.view_count, "
+                           "DATE_FORMAT(p.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, "
+                           "DATE_FORMAT(p.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, u.username, "
+                           "(SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) AS like_count, "
+                           "(SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count "
+                           "FROM posts p LEFT JOIN users u ON p.user_id = u.id";
+    std::vector<std::string> where_binds;
+
+    // @cuiruoni+P0安全修复：按状态和查看者权限构建WHERE条件，草稿只对作者/管理员可见
+    if (status == "published") {
         count_sql += " WHERE status = ?";
         list_sql += " WHERE status = ?";
+        where_binds.push_back("published");
+    } else if (status == "draft") {
+        if (is_admin) {
+            count_sql += " WHERE status = ?";
+            list_sql += " WHERE status = ?";
+            where_binds.push_back("draft");
+        } else {
+            count_sql += " WHERE status = ? AND user_id = ?";
+            list_sql += " WHERE status = ? AND user_id = ?";
+            where_binds.push_back("draft");
+            where_binds.push_back(std::to_string(viewer_id));
+        }
+    } else { // all
+        if (is_admin) {
+            // @cuiruoni+管理员可查看全部状态
+        } else if (viewer_id <= 0) {
+            // @cuiruoni+兜底：未认证查看者一律只看已发布文章
+            count_sql += " WHERE status = ?";
+            list_sql += " WHERE status = ?";
+            where_binds.push_back("published");
+        } else {
+            count_sql += " WHERE status = ? OR (status = ? AND user_id = ?)";
+            list_sql += " WHERE status = ? OR (status = ? AND user_id = ?)";
+            where_binds.push_back("published");
+            where_binds.push_back("draft");
+            where_binds.push_back(std::to_string(viewer_id));
+        }
     }
     list_sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
 
     try {
-        auto count_result = status != "all"
-            ? sess->sql(count_sql).bind(status).execute()
-            : sess->sql(count_sql).execute();
+        auto count_stmt = sess->sql(count_sql);
+        for (const auto& b : where_binds) {
+            count_stmt.bind(b);
+        }
+        auto count_result = count_stmt.execute();
         auto count_row = count_result.fetchOne();
         total = static_cast<int>(count_row[0]);
 
         int offset = (page - 1) * page_size;
-        auto result = status != "all"
-            ? sess->sql(list_sql).bind(status).bind(page_size).bind(offset).execute()
-            : sess->sql(list_sql).bind(page_size).bind(offset).execute();
+        auto list_stmt = sess->sql(list_sql);
+        for (const auto& b : where_binds) {
+            list_stmt.bind(b);
+        }
+        list_stmt.bind(page_size).bind(offset);
+        auto result = list_stmt.execute();
 
         json::array arr;
         for (auto row : result) {
@@ -42,6 +83,9 @@ json::array list_posts(int page, int page_size, const std::string& status, int& 
             obj["view_count"] = mysqlx_helper::to_json(row[5]);
             obj["created_at"] = mysqlx_helper::to_string(row[6]);
             obj["updated_at"] = mysqlx_helper::to_string(row[7]);
+            obj["author"] = mysqlx_helper::is_null(row, 8) ? "" : mysqlx_helper::to_string(row[8]);
+            obj["like_count"] = mysqlx_helper::to_json(row[9]);
+            obj["comment_count"] = mysqlx_helper::to_json(row[10]);
             arr.push_back(obj);
         }
         return arr;
@@ -58,23 +102,32 @@ Post find_by_id(int64_t id) {
 
     try {
         auto result = sess->sql(
-            "SELECT id, title, content_md, content_html, summary, user_id, status, view_count, created_at, updated_at "
-            "FROM posts WHERE id = ?")
+            "SELECT p.id, p.title, p.content_md, p.content_html, p.summary, p.user_id, p.status, p.view_count, "
+            "DATE_FORMAT(p.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, "
+            "DATE_FORMAT(p.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, u.username, "
+            "(SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) AS like_count, "
+            "(SELECT COUNT(*) FROM post_bookmarks pb WHERE pb.post_id = p.id) AS bookmark_count, "
+            "(SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count "
+            "FROM posts p LEFT JOIN users u ON p.user_id = u.id WHERE p.id = ?")
             .bind(id).execute();
 
         auto row = result.fetchOne();
         if (row.isNull()) return p;
 
         p.id = static_cast<int64_t>(row[0]);
-        p.title = static_cast<std::string>(row[1]);
-        p.content_md = static_cast<std::string>(row[2]);
-        p.content_html = static_cast<std::string>(row[3]);
-        p.summary = row[4].isNull() ? "" : static_cast<std::string>(row[4]);
+        p.title = mysqlx_helper::to_string(row[1]);
+        p.content_md = mysqlx_helper::to_string(row[2]);
+        p.content_html = mysqlx_helper::to_string(row[3]);
+        p.summary = row[4].isNull() ? "" : mysqlx_helper::to_string(row[4]);
         p.user_id = static_cast<int64_t>(row[5]);
-        p.status = static_cast<std::string>(row[6]);
+        p.status = mysqlx_helper::to_string(row[6]);
         p.view_count = static_cast<int>(static_cast<uint64_t>(row[7]));
-        p.created_at = static_cast<std::string>(row[8]);
-        p.updated_at = static_cast<std::string>(row[9]);
+        p.created_at = mysqlx_helper::to_string(row[8]);
+        p.updated_at = mysqlx_helper::to_string(row[9]);
+        p.author = mysqlx_helper::is_null(row, 10) ? "" : mysqlx_helper::to_string(row[10]);
+        p.like_count = static_cast<int>(static_cast<int64_t>(row[11]));
+        p.bookmark_count = static_cast<int>(static_cast<int64_t>(row[12]));
+        p.comment_count = static_cast<int>(static_cast<int64_t>(row[13]));
 
         p.tags = load_tags(id);
     } catch (const std::exception& e) {
@@ -238,7 +291,9 @@ json::array admin_list_posts(int page, int page_size, const std::string& status,
     try {
         std::string count_sql = "SELECT COUNT(*) FROM posts";
         std::string list_sql =
-            "SELECT p.id, p.title, p.status, p.view_count, p.created_at, p.updated_at, "
+            "SELECT p.id, p.title, p.status, p.view_count, "
+            "DATE_FORMAT(p.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, "
+            "DATE_FORMAT(p.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, "
             "u.id, u.username "
             "FROM posts p LEFT JOIN users u ON p.user_id = u.id";
 
@@ -275,10 +330,8 @@ json::array admin_list_posts(int page, int page_size, const std::string& status,
             obj["view_count"] = mysqlx_helper::to_json(row[3]);
             obj["created_at"] = mysqlx_helper::to_string(row[4]);
             obj["updated_at"] = mysqlx_helper::is_null(row, 5) ? "" : mysqlx_helper::to_string(row[5]);
-            json::object author;
-            author["id"] = mysqlx_helper::to_json(row[6]);
-            author["username"] = mysqlx_helper::to_string(row[7]);
-            obj["author"] = author;
+            obj["author_id"] = mysqlx_helper::to_json(row[6]);
+            obj["author"] = mysqlx_helper::is_null(row, 7) ? "" : mysqlx_helper::to_string(row[7]);
             arr.push_back(obj);
         }
         return arr;
@@ -324,6 +377,214 @@ int64_t count_by_status(const std::string& status) {
     } catch (const std::exception& e) {
         spdlog::error("post_dao::count_by_status error: {}", e.what());
         return 0;
+    }
+}
+
+// @cuiruoni+点赞/收藏功能（P1修复）
+int64_t count_likes(int64_t post_id) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return 0;
+    try {
+        auto result = sess->sql("SELECT COUNT(*) FROM post_likes WHERE post_id = ?")
+            .bind(post_id).execute();
+        return static_cast<int64_t>(result.fetchOne()[0]);
+    } catch (const std::exception& e) {
+        spdlog::error("post_dao::count_likes error: {}", e.what());
+        return 0;
+    }
+}
+
+int64_t count_bookmarks(int64_t post_id) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return 0;
+    try {
+        auto result = sess->sql("SELECT COUNT(*) FROM post_bookmarks WHERE post_id = ?")
+            .bind(post_id).execute();
+        return static_cast<int64_t>(result.fetchOne()[0]);
+    } catch (const std::exception& e) {
+        spdlog::error("post_dao::count_bookmarks error: {}", e.what());
+        return 0;
+    }
+}
+
+int64_t count_comments(int64_t post_id) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return 0;
+    try {
+        auto result = sess->sql("SELECT COUNT(*) FROM comments WHERE post_id = ?")
+            .bind(post_id).execute();
+        return static_cast<int64_t>(result.fetchOne()[0]);
+    } catch (const std::exception& e) {
+        spdlog::error("post_dao::count_comments error: {}", e.what());
+        return 0;
+    }
+}
+
+bool is_liked(int64_t post_id, int64_t user_id) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return false;
+    try {
+        auto result = sess->sql("SELECT 1 FROM post_likes WHERE user_id = ? AND post_id = ?")
+            .bind(user_id).bind(post_id).execute();
+        return result.count() > 0;
+    } catch (const std::exception& e) {
+        spdlog::error("post_dao::is_liked error: {}", e.what());
+        return false;
+    }
+}
+
+bool is_bookmarked(int64_t post_id, int64_t user_id) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return false;
+    try {
+        auto result = sess->sql("SELECT 1 FROM post_bookmarks WHERE user_id = ? AND post_id = ?")
+            .bind(user_id).bind(post_id).execute();
+        return result.count() > 0;
+    } catch (const std::exception& e) {
+        spdlog::error("post_dao::is_bookmarked error: {}", e.what());
+        return false;
+    }
+}
+
+bool add_like(int64_t post_id, int64_t user_id) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return false;
+    try {
+        auto result = sess->sql("INSERT IGNORE INTO post_likes (user_id, post_id) VALUES (?, ?)")
+            .bind(user_id).bind(post_id).execute();
+        return result.getAffectedItemsCount() > 0;
+    } catch (const std::exception& e) {
+        spdlog::error("post_dao::add_like error: {}", e.what());
+        return false;
+    }
+}
+
+bool remove_like(int64_t post_id, int64_t user_id) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return false;
+    try {
+        sess->sql("DELETE FROM post_likes WHERE user_id = ? AND post_id = ?")
+            .bind(user_id).bind(post_id).execute();
+        return true;
+    } catch (const std::exception& e) {
+        spdlog::error("post_dao::remove_like error: {}", e.what());
+        return false;
+    }
+}
+
+bool add_bookmark(int64_t post_id, int64_t user_id) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return false;
+    try {
+        auto result = sess->sql("INSERT IGNORE INTO post_bookmarks (user_id, post_id) VALUES (?, ?)")
+            .bind(user_id).bind(post_id).execute();
+        return result.getAffectedItemsCount() > 0;
+    } catch (const std::exception& e) {
+        spdlog::error("post_dao::add_bookmark error: {}", e.what());
+        return false;
+    }
+}
+
+bool remove_bookmark(int64_t post_id, int64_t user_id) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return false;
+    try {
+        sess->sql("DELETE FROM post_bookmarks WHERE user_id = ? AND post_id = ?")
+            .bind(user_id).bind(post_id).execute();
+        return true;
+    } catch (const std::exception& e) {
+        spdlog::error("post_dao::remove_bookmark error: {}", e.what());
+        return false;
+    }
+}
+
+json::array list_liked_posts(int64_t user_id, int page, int page_size, int& total) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return json::array{};
+    try {
+        auto count_result = sess->sql(
+            "SELECT COUNT(*) FROM post_likes pl JOIN posts p ON p.id = pl.post_id "
+            "WHERE pl.user_id = ? AND p.status = 'published'")
+            .bind(user_id).execute();
+        total = static_cast<int>(static_cast<int64_t>(count_result.fetchOne()[0]));
+
+        int offset = (page - 1) * page_size;
+        auto result = sess->sql(
+            "SELECT p.id, p.title, p.summary, p.status, p.view_count, "
+            "DATE_FORMAT(p.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, "
+            "DATE_FORMAT(p.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, u.username, "
+            "(SELECT COUNT(*) FROM post_likes pl2 WHERE pl2.post_id = p.id) AS like_count, "
+            "(SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count "
+            "FROM post_likes pl JOIN posts p ON p.id = pl.post_id "
+            "LEFT JOIN users u ON p.user_id = u.id "
+            "WHERE pl.user_id = ? AND p.status = 'published' "
+            "ORDER BY pl.created_at DESC LIMIT ? OFFSET ?")
+            .bind(user_id).bind(page_size).bind(offset).execute();
+
+        json::array arr;
+        for (auto row : result) {
+            json::object obj;
+            obj["id"] = mysqlx_helper::to_json(row[0]);
+            obj["title"] = mysqlx_helper::to_string(row[1]);
+            obj["summary"] = mysqlx_helper::is_null(row, 2) ? "" : mysqlx_helper::to_string(row[2]);
+            obj["status"] = mysqlx_helper::to_string(row[3]);
+            obj["view_count"] = mysqlx_helper::to_json(row[4]);
+            obj["created_at"] = mysqlx_helper::to_string(row[5]);
+            obj["updated_at"] = mysqlx_helper::is_null(row, 6) ? "" : mysqlx_helper::to_string(row[6]);
+            obj["author"] = mysqlx_helper::is_null(row, 7) ? "" : mysqlx_helper::to_string(row[7]);
+            obj["like_count"] = mysqlx_helper::to_json(row[8]);
+            obj["comment_count"] = mysqlx_helper::to_json(row[9]);
+            arr.push_back(obj);
+        }
+        return arr;
+    } catch (const std::exception& e) {
+        spdlog::error("post_dao::list_liked_posts error: {}", e.what());
+        return json::array{};
+    }
+}
+
+json::array list_bookmarked_posts(int64_t user_id, int page, int page_size, int& total) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return json::array{};
+    try {
+        auto count_result = sess->sql(
+            "SELECT COUNT(*) FROM post_bookmarks pb JOIN posts p ON p.id = pb.post_id "
+            "WHERE pb.user_id = ? AND p.status = 'published'")
+            .bind(user_id).execute();
+        total = static_cast<int>(static_cast<int64_t>(count_result.fetchOne()[0]));
+
+        int offset = (page - 1) * page_size;
+        auto result = sess->sql(
+            "SELECT p.id, p.title, p.summary, p.status, p.view_count, "
+            "DATE_FORMAT(p.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, "
+            "DATE_FORMAT(p.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, u.username, "
+            "(SELECT COUNT(*) FROM post_likes pl2 WHERE pl2.post_id = p.id) AS like_count, "
+            "(SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count "
+            "FROM post_bookmarks pb JOIN posts p ON p.id = pb.post_id "
+            "LEFT JOIN users u ON p.user_id = u.id "
+            "WHERE pb.user_id = ? AND p.status = 'published' "
+            "ORDER BY pb.created_at DESC LIMIT ? OFFSET ?")
+            .bind(user_id).bind(page_size).bind(offset).execute();
+
+        json::array arr;
+        for (auto row : result) {
+            json::object obj;
+            obj["id"] = mysqlx_helper::to_json(row[0]);
+            obj["title"] = mysqlx_helper::to_string(row[1]);
+            obj["summary"] = mysqlx_helper::is_null(row, 2) ? "" : mysqlx_helper::to_string(row[2]);
+            obj["status"] = mysqlx_helper::to_string(row[3]);
+            obj["view_count"] = mysqlx_helper::to_json(row[4]);
+            obj["created_at"] = mysqlx_helper::to_string(row[5]);
+            obj["updated_at"] = mysqlx_helper::is_null(row, 6) ? "" : mysqlx_helper::to_string(row[6]);
+            obj["author"] = mysqlx_helper::is_null(row, 7) ? "" : mysqlx_helper::to_string(row[7]);
+            obj["like_count"] = mysqlx_helper::to_json(row[8]);
+            obj["comment_count"] = mysqlx_helper::to_json(row[9]);
+            arr.push_back(obj);
+        }
+        return arr;
+    } catch (const std::exception& e) {
+        spdlog::error("post_dao::list_bookmarked_posts error: {}", e.what());
+        return json::array{};
     }
 }
 

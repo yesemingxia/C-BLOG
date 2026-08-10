@@ -15,6 +15,8 @@ void cors_handle_request(const http::request<http::string_body>& req,
     }
     res.set(http::field::access_control_allow_methods, "GET, POST, PUT, DELETE, OPTIONS");
     res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
+    // @cuiruoni+P2修复：Cookie认证需要显式允许携带凭证
+    res.set(http::field::access_control_allow_credentials, "true");
     res.set(http::field::access_control_max_age, "86400");
 }
 

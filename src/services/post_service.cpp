@@ -22,6 +22,10 @@ json::object post_to_json(const Post& post) {
         {"content_html", post.content_html},
         {"summary", post.summary},
         {"user_id", post.user_id},
+        {"author", post.author},
+        {"like_count", post.like_count},
+        {"bookmark_count", post.bookmark_count},
+        {"comment_count", post.comment_count},
         {"tags", tags},
         {"status", post.status},
         {"view_count", post.view_count},
@@ -55,9 +59,10 @@ Post json_to_post(const json::object& obj) {
 
 // @cuiruoni+分页查询文章列表，支持按status过滤，返回文章摘要信息
 // @cuiruoni+先查总数再查列表，避免两次全量查询
-json::array list_posts(int page, int page_size, const std::string& status, int& total) {
+json::array list_posts(int page, int page_size, const std::string& status, int& total,
+                       int64_t viewer_id, bool is_admin) {
     try {
-        return post_dao::list_posts(page, page_size, status, total);
+        return post_dao::list_posts(page, page_size, status, total, viewer_id, is_admin);
     } catch (const std::exception& e) {
         spdlog::error("list_posts error: {}", e.what());
         return json::array{};

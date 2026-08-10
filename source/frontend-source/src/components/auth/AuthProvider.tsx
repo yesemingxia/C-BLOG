@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
-import { authApi } from "../../lib/api";
+import { authApi, profileApi } from "../../lib/api";
 
 interface AuthUser {
   id: number;
@@ -10,6 +10,7 @@ interface AuthUser {
 
 interface AuthContextValue {
   isLoggedIn: boolean;
+  ready: boolean;
   user: AuthUser | null;
   login: (email: string, password: string) => Promise<{ success: boolean; message?: string }>;
   register: (username: string, email: string, password: string) => Promise<{ success: boolean; message?: string }>;
@@ -18,6 +19,7 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue>({
   isLoggedIn: false,
+  ready: false,
   user: null,
   login: async () => ({ success: false }),
   register: async () => ({ success: false }),
@@ -27,61 +29,48 @@ const AuthContext = createContext<AuthContextValue>({
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<AuthUser | null>(() => {
-    try {
-      const raw = localStorage.getItem("blog_user");
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [ready, setReady] = useState(false);
 
-  const isLoggedIn = !!user && !!localStorage.getItem("blog_token");
+  const isLoggedIn = !!user;
 
-  const syncFromStorage = useCallback(() => {
+  // @cuiruoni+P2修复：登录态从HttpOnly Cookie驱动，挂载/刷新时通过API确认
+  const refreshUser = useCallback(async () => {
     try {
-      const raw = localStorage.getItem("blog_user");
-      setUser(raw ? JSON.parse(raw) : null);
+      const profile = await profileApi.get();
+      setUser(profile);
     } catch {
       setUser(null);
     }
   }, []);
 
   useEffect(() => {
-    window.addEventListener("storage", syncFromStorage);
-    window.addEventListener("auth-change", syncFromStorage);
+    refreshUser().finally(() => setReady(true));
+    window.addEventListener("auth-change", refreshUser);
     return () => {
-      window.removeEventListener("storage", syncFromStorage);
-      window.removeEventListener("auth-change", syncFromStorage);
+      window.removeEventListener("auth-change", refreshUser);
     };
-  }, [syncFromStorage]);
+  }, [refreshUser]);
 
   const login = useCallback(async (email: string, password: string) => {
     const res = await authApi.login(email, password);
-    if (res.success) {
-      syncFromStorage();
-      window.dispatchEvent(new Event("auth-change"));
-    }
+    if (res.success && res.data?.user) setUser(res.data.user);
     return res;
-  }, [syncFromStorage]);
+  }, []);
 
   const register = useCallback(async (username: string, email: string, password: string) => {
     const res = await authApi.register(username, email, password);
-    if (res.success) {
-      syncFromStorage();
-      window.dispatchEvent(new Event("auth-change"));
-    }
+    if (res.success && res.data?.user) setUser(res.data.user);
     return res;
-  }, [syncFromStorage]);
+  }, []);
 
   const logout = useCallback(async () => {
     await authApi.logout();
     setUser(null);
-    window.dispatchEvent(new Event("auth-change"));
   }, []);
 
   return (
-    <AuthContext.Provider value={{ isLoggedIn, user, login, register, logout }}>
+    <AuthContext.Provider value={{ isLoggedIn, ready, user, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

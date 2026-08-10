@@ -119,3 +119,40 @@ if(WIN32)
     target_compile_definitions(blog PRIVATE _WIN32_WINNT=0x0601)
     target_link_libraries(blog PRIVATE ws2_32 crypt32)
 endif()
+
+# ============================================================================
+# 统一 UTF-8 编译选项：源码含中文注释，GBK 代码页下会破坏编译
+# ============================================================================
+if(MSVC)
+    target_compile_options(blog PRIVATE /utf-8)
+endif()
+
+# ============================================================================
+# 单元测试（P1修复：纯逻辑测试，不依赖MySQL/Redis）
+# ============================================================================
+enable_testing()
+
+add_executable(blog_tests
+    tests/unit_tests.cpp
+    src/utils/response.cpp
+    src/utils/password.cpp
+)
+
+target_include_directories(blog_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(blog_tests PRIVATE
+    Boost::json
+    OpenSSL::Crypto
+)
+
+if(WIN32)
+    target_compile_definitions(blog_tests PRIVATE _WIN32_WINNT=0x0601)
+endif()
+
+if(MSVC)
+    target_compile_options(blog_tests PRIVATE /utf-8)
+endif()
+
+add_test(NAME blog_unit_tests COMMAND blog_tests)

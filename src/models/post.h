@@ -13,6 +13,10 @@ struct Post {
     std::string summary;         // @cuiruoni+摘要，未提供时自动截取前200字符
     std::vector<std::string> tags;
     int64_t user_id = 0;
+    std::string author;          // @cuiruoni+作者用户名（JOIN users 获取）
+    int like_count = 0;          // @cuiruoni+点赞数（子查询统计）
+    int bookmark_count = 0;      // @cuiruoni+收藏数（子查询统计）
+    int comment_count = 0;       // @cuiruoni+评论数（子查询统计）
     std::string status;          // @cuiruoni+文章状态：draft(草稿)/published(已发布)
     int view_count = 0;
     std::string created_at;

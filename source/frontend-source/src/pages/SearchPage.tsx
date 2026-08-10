@@ -113,50 +113,42 @@ const SearchPage = () => {
 
   return (
     <div data-cmp="SearchPage" className="min-h-screen relative">
-      <GlassBackground showParticles={false} />
+      <GlassBackground />
       <Navbar isLoggedIn={isLoggedIn} onLogout={handleLogout} onLogin={() => navigate(`/login`)} />
 
       <div className="relative z-10" style={{ paddingTop: 64 }}>
         <div className="mx-auto px-6 py-12" style={{ maxWidth: 900 }}>
           {/* Search header */}
           <div className="text-center mb-10">
-            <h1 className="text-4xl font-black gradient-text mb-3">探索一切</h1>
-            <p className="text-sm" style={{ color: `rgba(var(--foreground-rgb),0.5)` }}>搜索文章、标签、作者...</p>
+            <h1 className="text-4xl font-black text-[var(--foreground)] mb-3">探索一切</h1>
+            <p className="text-sm text-[var(--muted-foreground)]">搜索文章、标签、作者...</p>
           </div>
 
           {/* Search bar */}
           <form onSubmit={handleSubmit} className="relative mb-10">
-            <div
-              className="flex items-center gap-3 px-5 py-4 rounded-2xl"
-              style={{
-                background: `rgba(var(--foreground-rgb),0.06)`,
-                border: `1px solid rgba(124,106,255,0.25)`,
-                backdropFilter: `blur(20px)`,
-                boxShadow: `0 0 30px rgba(124,106,255,0.12)`,
-              }}
-            >
-              <Search size={20} style={{ color: `#7c6aff`, flexShrink: 0 }} />
+            <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border border-[var(--border)] bg-[var(--card)]">
+              <Search size={20} className="text-[var(--muted-foreground)] flex-shrink-0" />
               <input
                 ref={inputRef}
                 type="text"
                 placeholder="搜索文章、标签或作者..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                className="flex-1 bg-transparent text-foreground outline-none text-base"
-                style={{ caretColor: `#7c6aff`, color: `rgba(var(--foreground-rgb),0.9)` }}
+                className="flex-1 bg-transparent text-[var(--foreground)] outline-none text-base"
+                style={{ caretColor: `var(--foreground)` }}
               />
               <div className={query ? `` : `hidden`}>
                 <button
                   type="button"
                   onClick={() => { setQuery(``); setHasSearched(false); inputRef.current?.focus(); }}
-                  className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-foreground/10 transition-colors"
+                  className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-[var(--brand-subtle)] transition-colors"
                 >
-                  <X size={14} style={{ color: `rgba(var(--foreground-rgb),0.5)` }} />
+                  <X size={14} className="text-[var(--muted-foreground)]" />
                 </button>
               </div>
               <button
                 type="submit"
-                className="btn-primary-glass px-5 py-2 rounded-xl text-sm font-semibold flex-shrink-0"
+                className="btn-primary px-5 py-2 rounded-xl text-sm font-semibold flex-shrink-0"
               >
                 搜索
               </button>
@@ -167,8 +159,8 @@ const SearchPage = () => {
           <div className={hasSearched ? `hidden` : ``}>
             {/* Recent searches */}
             <div className={recentSearches.length > 0 ? `mb-8` : `hidden`}>
-              <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
-                <Clock size={14} style={{ color: `rgba(var(--foreground-rgb),0.5)` }} />
+              <h3 className="text-sm font-semibold text-[var(--foreground)] mb-4 flex items-center gap-2">
+                <Clock size={14} className="text-[var(--muted-foreground)]" />
                 最近搜索
               </h3>
               <div className="flex flex-wrap gap-2">
@@ -176,15 +168,11 @@ const SearchPage = () => {
                   <div
                     key={term}
                     onClick={() => handleQuickSearch(term)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl cursor-pointer transition-all group"
-                    style={{
-                      background: `rgba(var(--foreground-rgb),0.05)`,
-                      border: `1px solid rgba(var(--foreground-rgb),0.07)`,
-                    }}
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl cursor-pointer transition-all group bg-[var(--muted)] border border-[var(--border)]"
                   >
-                    <span className="text-sm" style={{ color: `rgba(var(--foreground-rgb),0.7)` }}>{term}</span>
+                    <span className="text-sm text-[var(--muted-foreground)]">{term}</span>
                     <button onClick={(e) => removeRecent(term, e)} className="opacity-0 group-hover:opacity-100 transition-opacity">
-                      <X size={12} style={{ color: `rgba(var(--foreground-rgb),0.4)` }} />
+                      <X size={12} className="text-[var(--muted-foreground)]" />
                     </button>
                   </div>
                 ))}
@@ -193,8 +181,8 @@ const SearchPage = () => {
 
             {/* Hot searches */}
             <div className="mb-10">
-              <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
-                <TrendingUp size={14} style={{ color: `#f59e0b` }} />
+              <h3 className="text-sm font-semibold text-[var(--foreground)] mb-4 flex items-center gap-2">
+                <TrendingUp size={14} className="text-[var(--muted-foreground)]" />
                 热门搜索
               </h3>
               <div className="flex flex-wrap gap-2">
@@ -202,14 +190,9 @@ const SearchPage = () => {
                   <button
                     key={term}
                     onClick={() => handleQuickSearch(term)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm transition-all"
-                    style={{
-                      background: `rgba(var(--foreground-rgb),0.04)`,
-                      border: `1px solid rgba(var(--foreground-rgb),0.07)`,
-                      color: `rgba(var(--foreground-rgb),0.7)`,
-                    }}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm transition-all bg-[var(--muted)] border border-[var(--border)] text-[var(--muted-foreground)]"
                   >
-                    <span className="text-xs font-bold w-4" style={{ color: i < 3 ? `#f472b6` : `rgba(var(--foreground-rgb),0.35)` }}>
+                    <span className={`text-xs font-bold w-4 ${i < 3 ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}`}>
                       {String(i + 1).padStart(2, `0`)}
                     </span>
                     {term}
@@ -220,8 +203,8 @@ const SearchPage = () => {
 
             {/* Hot tags */}
             <div>
-              <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
-                <Hash size={14} style={{ color: `#38bdf8` }} />
+              <h3 className="text-sm font-semibold text-[var(--foreground)] mb-4 flex items-center gap-2">
+                <Hash size={14} className="text-[var(--muted-foreground)]" />
                 热门标签
               </h3>
               <div className="flex flex-wrap gap-2">
@@ -229,7 +212,7 @@ const SearchPage = () => {
                   <button
                     key={tag}
                     onClick={() => handleQuickSearch(tag)}
-                    className="tag-glass"
+                    className="tag"
                   >
                     #{tag}
                   </button>
@@ -242,14 +225,14 @@ const SearchPage = () => {
           <div className={hasSearched ? `` : `hidden`}>
             {/* Result header */}
             <div className="flex items-center justify-between mb-6">
-              <div className="text-sm" style={{ color: `rgba(var(--foreground-rgb),0.6)` }}>
+              <div className="text-sm text-[var(--muted-foreground)]">
                 <span>搜索 "</span>
-                <span style={{ color: `#a78bfa` }}>{query}</span>
+                <span className="text-[var(--foreground)]">{query}</span>
                 <span>" 找到 {results.length} 个结果</span>
               </div>
 
               {/* Tabs */}
-              <div className="flex items-center gap-1 p-1 rounded-xl" style={{ background: `rgba(var(--foreground-rgb),0.05)` }}>
+              <div className="flex items-center gap-1 p-1 rounded-xl bg-[var(--muted)]">
                 {([
                   { key: `posts` as const, label: `文章`, icon: FileText },
                   { key: `tags` as const, label: `标签`, icon: Hash },
@@ -258,11 +241,11 @@ const SearchPage = () => {
                   <button
                     key={tab.key}
                     onClick={() => setActiveTab(tab.key)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all"
-                    style={{
-                      background: activeTab === tab.key ? `rgba(124,106,255,0.2)` : `transparent`,
-                      color: activeTab === tab.key ? `#a78bfa` : `rgba(var(--foreground-rgb),0.5)`,
-                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all ${
+                      activeTab === tab.key
+                        ? "bg-[var(--brand-subtle)] text-[var(--foreground)]"
+                        : "text-[var(--muted-foreground)]"
+                    }`}
                   >
                     <tab.icon size={12} />
                     {tab.label}
@@ -278,8 +261,8 @@ const SearchPage = () => {
               ))}
               <div className={results.length === 0 ? `text-center py-16` : `hidden`}>
                 <div className="text-4xl mb-4">🔍</div>
-                <div className="text-foreground font-medium mb-2">没有找到相关文章</div>
-                <div className="text-sm" style={{ color: `rgba(var(--foreground-rgb),0.4)` }}>换个关键词试试吧</div>
+                <div className="text-[var(--foreground)] font-medium mb-2">没有找到相关文章</div>
+                <div className="text-sm text-[var(--muted-foreground)]">换个关键词试试吧</div>
               </div>
             </div>
 
@@ -289,13 +272,13 @@ const SearchPage = () => {
                 {matchedTags.map((tag) => (
                   <div
                     key={tag}
-                    className="glass-card px-5 py-4 flex items-center gap-3 cursor-pointer hover:bg-foreground/5 transition-all"
+                    className="card px-5 py-4 flex items-center gap-3 cursor-pointer hover:bg-[var(--brand-subtle)] transition-all"
                     onClick={() => handleQuickSearch(tag)}
                   >
-                    <Hash size={16} style={{ color: `#7c6aff` }} />
+                    <Hash size={16} className="text-[var(--muted-foreground)]" />
                     <div>
-                      <div className="text-sm font-semibold text-foreground">{tag}</div>
-                      <div className="text-xs" style={{ color: `rgba(var(--foreground-rgb),0.4)` }}>
+                      <div className="text-sm font-semibold text-[var(--foreground)]">{tag}</div>
+                      <div className="text-xs text-[var(--muted-foreground)]">
                         标签
                       </div>
                     </div>
@@ -304,8 +287,8 @@ const SearchPage = () => {
                 {matchedTags.length === 0 && (
                   <div className="text-center py-16 w-full">
                     <div className="text-4xl mb-4">🏷️</div>
-                    <div className="text-foreground font-medium mb-2">没有找到相关标签</div>
-                    <div className="text-sm" style={{ color: `rgba(var(--foreground-rgb),0.4)` }}>换个关键词试试吧</div>
+                    <div className="text-[var(--foreground)] font-medium mb-2">没有找到相关标签</div>
+                    <div className="text-sm text-[var(--muted-foreground)]">换个关键词试试吧</div>
                   </div>
                 )}
               </div>
@@ -317,22 +300,20 @@ const SearchPage = () => {
                 {matchedAuthors.map((author) => (
                   <div
                     key={author.name}
-                    className="glass-card p-4 flex items-center gap-4 cursor-pointer hover:bg-foreground/5 transition-all"
+                    className="card p-4 flex items-center gap-4 cursor-pointer hover:bg-[var(--brand-subtle)] transition-all"
                     onClick={() => navigate(`/profile/${encodeURIComponent(author.name)}`)}
                   >
                     <div
-                      className="w-12 h-12 rounded-xl flex items-center justify-center font-bold text-sm flex-shrink-0"
-                      style={{ background: `linear-gradient(135deg, #7c6aff, #38bdf8)` }}
+                      className="w-12 h-12 rounded-xl flex items-center justify-center font-bold text-sm flex-shrink-0 bg-[var(--foreground)] text-[var(--background)]"
                     >
                       {author.name.slice(0, 2).toUpperCase()}
                     </div>
                     <div className="flex-1">
-                      <div className="font-semibold text-sm text-foreground">{author.name}</div>
-                      <div className="text-xs" style={{ color: `rgba(var(--foreground-rgb),0.45)` }}>{author.count} 篇文章</div>
+                      <div className="font-semibold text-sm text-[var(--foreground)]">{author.name}</div>
+                      <div className="text-xs text-[var(--muted-foreground)]">{author.count} 篇文章</div>
                     </div>
                     <button
-                      className="px-4 py-2 rounded-xl text-xs font-medium"
-                      style={{ background: `rgba(124,106,255,0.12)`, color: `#a78bfa`, border: `1px solid rgba(124,106,255,0.2)` }}
+                      className="px-4 py-2 rounded-xl text-xs font-medium bg-[var(--brand-subtle)] text-[var(--foreground)] border border-[var(--border)]"
                     >
                       查看
                     </button>
@@ -341,8 +322,8 @@ const SearchPage = () => {
                 {matchedAuthors.length === 0 && (
                   <div className="text-center py-16">
                     <div className="text-4xl mb-4">👤</div>
-                    <div className="text-foreground font-medium mb-2">没有找到相关作者</div>
-                    <div className="text-sm" style={{ color: `rgba(var(--foreground-rgb),0.4)` }}>换个关键词试试吧</div>
+                    <div className="text-[var(--foreground)] font-medium mb-2">没有找到相关作者</div>
+                    <div className="text-sm text-[var(--muted-foreground)]">换个关键词试试吧</div>
                   </div>
                 )}
               </div>

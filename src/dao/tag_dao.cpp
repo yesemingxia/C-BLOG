@@ -10,9 +10,12 @@ json::array list_with_post_count() {
     if (!sess) return json::array{};
 
     try {
+        // @cuiruoni+P0安全修复：统计只计算已发布文章，草稿不对外暴露数量
         auto result = sess->sql(
-            "SELECT t.id, t.name, COUNT(pt.post_id) AS post_count "
-            "FROM tags t LEFT JOIN post_tags pt ON t.id = pt.tag_id "
+            "SELECT t.id, t.name, COUNT(p.id) AS post_count "
+            "FROM tags t "
+            "LEFT JOIN post_tags pt ON t.id = pt.tag_id "
+            "LEFT JOIN posts p ON p.id = pt.post_id AND p.status = 'published' "
             "GROUP BY t.id, t.name ORDER BY t.name")
             .execute();
 
@@ -36,10 +39,13 @@ json::array find_posts_by_tag_id(int64_t tag_id) {
     if (!sess) return json::array{};
 
     try {
+        // @cuiruoni+P1修复：标签文章列表带作者用户名
         auto result = sess->sql(
-            "SELECT p.id, p.title, p.summary, p.status, p.view_count, p.created_at "
+            "SELECT p.id, p.title, p.summary, p.status, p.view_count, "
+            "DATE_FORMAT(p.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, u.username "
             "FROM posts p INNER JOIN post_tags pt ON p.id = pt.post_id "
-            "WHERE pt.tag_id = ? ORDER BY p.created_at DESC")
+            "LEFT JOIN users u ON p.user_id = u.id "
+            "WHERE pt.tag_id = ? AND p.status = 'published' ORDER BY p.created_at DESC")
             .bind(tag_id).execute();
 
         json::array arr;
@@ -51,6 +57,7 @@ json::array find_posts_by_tag_id(int64_t tag_id) {
             obj["status"] = mysqlx_helper::to_string(row[3]);
             obj["view_count"] = mysqlx_helper::to_json(row[4]);
             obj["created_at"] = mysqlx_helper::to_string(row[5]);
+            obj["author"] = mysqlx_helper::is_null(row, 6) ? "" : mysqlx_helper::to_string(row[6]);
             arr.push_back(obj);
         }
         return arr;

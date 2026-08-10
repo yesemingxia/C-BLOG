@@ -58,14 +58,15 @@ EXPOSE 8089
 CMD ["./blog", "-c", "config/config.json"]
 
 # ============================================================================
-# 前端构建阶段（单独使用：docker build -f Dockerfile.frontend .）
+# 前端构建阶段（单独使用：docker build --target frontend-builder .）
 # ============================================================================
 FROM node:20-alpine AS frontend-builder
 
 WORKDIR /build
-COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm ci
-COPY frontend/ .
+# @cuiruoni+package-lock.json已被gitignore，全新克隆不存在，使用npm install保证可构建
+COPY source/frontend-source/package.json ./
+RUN npm install
+COPY source/frontend-source/ ./
 RUN npm run build
 
 # @cuiruoni+前端产物在 /build/dist，由 Nginx 或后端静态文件服务提供

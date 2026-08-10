@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -10,7 +10,7 @@ import {
 import { toast } from "sonner";
 import GlassBackground from "../components/layout/GlassBackground";
 import { useAuth } from "../components/auth/AuthProvider";
-import { adminApi, type AdminStats, type AdminUser, type AdminComment } from "../lib/api";
+import { adminApi, checkBackendHealth, type AdminStats, type AdminUser, type AdminComment } from "../lib/api";
 import type { ApiPost } from "../lib/api";
 
 const sidebarItems = [
@@ -71,7 +71,7 @@ const Pagination = ({ page, totalPages, setPage }: { page: number; totalPages: n
       <button
         onClick={() => setPage(Math.max(1, page - 1))}
         disabled={page === 1}
-        className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-30 bg-foreground/5 border border-foreground/10 text-foreground/70 hover:bg-foreground/10"
+        className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-30 bg-[var(--muted)] border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--brand-subtle)]"
       >
         上一页
       </button>
@@ -81,8 +81,8 @@ const Pagination = ({ page, totalPages, setPage }: { page: number; totalPages: n
           onClick={() => setPage(p)}
           className={`w-8 h-8 rounded-lg text-xs font-bold transition-all ${
             p === page
-              ? "bg-[var(--primary)] text-white"
-              : "bg-foreground/5 border border-foreground/10 text-foreground/60 hover:bg-foreground/10"
+              ? "bg-[var(--foreground)] text-[var(--background)]"
+              : "bg-[var(--muted)] border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--brand-subtle)]"
           }`}
         >
           {p}
@@ -91,7 +91,7 @@ const Pagination = ({ page, totalPages, setPage }: { page: number; totalPages: n
       <button
         onClick={() => setPage(Math.min(totalPages, page + 1))}
         disabled={page === totalPages}
-        className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-30 bg-foreground/5 border border-foreground/10 text-foreground/70 hover:bg-foreground/10"
+        className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-30 bg-[var(--muted)] border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--brand-subtle)]"
       >
         下一页
       </button>
@@ -101,23 +101,22 @@ const Pagination = ({ page, totalPages, setPage }: { page: number; totalPages: n
 
 const SearchInput = ({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) => (
   <div className="relative">
-    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground/35" />
+    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
     <input
       type="text"
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="glass-input w-full pl-10 pr-4 py-2.5 rounded-xl text-sm"
-      style={{ fontFamily: "var(--font-display)" }}
+      className="glass-input w-full pl-10 pr-4 py-2.5 rounded-xl text-sm font-display"
     />
   </div>
 );
 
 const statCardsConfig = [
-  { label: "总用户数", icon: Users, color: "#7c6aff", trend: "+12%" },
-  { label: "总文章数", icon: FileText, color: "#38bdf8", trend: "+8%" },
-  { label: "总评论数", icon: MessageSquare, color: "#34d399", trend: "+23%" },
-  { label: "已发布文章", icon: Eye, color: "#f59e0b", trend: "+5%" },
+  { label: "总用户数", icon: Users },
+  { label: "总文章数", icon: FileText },
+  { label: "总评论数", icon: MessageSquare },
+  { label: "已发布文章", icon: Eye },
 ];
 
 const DashboardTab = ({ stats }: { stats: AdminStats }) => {
@@ -132,32 +131,25 @@ const DashboardTab = ({ stats }: { stats: AdminStats }) => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.1, duration: 0.4, ease: "easeOut" as const }}
-            className="relative overflow-hidden rounded-2xl p-5 glass-card"
+            className="relative overflow-hidden rounded-2xl p-5 card"
           >
             <div
-              className="absolute top-0 left-0 right-0 h-[2px]"
-              style={{ background: `linear-gradient(90deg, ${card.color}, transparent)` }}
+              className="absolute top-0 left-0 right-0 h-[2px] bg-[var(--foreground)]"
             />
             <div className="flex items-start justify-between">
               <div>
-                <div className="text-xs font-medium mb-2 text-foreground/45" style={{ fontFamily: "var(--font-display)" }}>
+                <div className="text-xs font-medium mb-2 text-[var(--muted-foreground)] font-display">
                   {card.label}
                 </div>
-                <div className="text-3xl font-bold" style={{ color: card.color, fontFamily: "var(--font-display)" }}>
+                <div className="text-3xl font-bold text-[var(--foreground)] font-display">
                   <CountUp target={statValues[i]} />
                 </div>
               </div>
               <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center"
-                style={{ background: `${card.color}15` }}
+                className="w-10 h-10 rounded-xl flex items-center justify-center bg-[var(--muted)] text-[var(--muted-foreground)]"
               >
-                <card.icon size={20} style={{ color: card.color }} />
+                <card.icon size={20} />
               </div>
-            </div>
-            <div className="flex items-center gap-1.5 mt-3">
-              <TrendingUp size={12} style={{ color: "#34d399" }} />
-              <span className="text-xs font-medium" style={{ color: "#34d399", fontFamily: "var(--font-display)" }}>{card.trend}</span>
-              <span className="text-xs text-foreground/30" style={{ fontFamily: "var(--font-display)" }}>较上月</span>
             </div>
           </motion.div>
         ))}
@@ -168,23 +160,23 @@ const DashboardTab = ({ stats }: { stats: AdminStats }) => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4, duration: 0.4 }}
-          className="lg:col-span-2 rounded-2xl p-5 glass-card"
+          className="lg:col-span-2 rounded-2xl p-5 card"
         >
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-bold text-foreground/80" style={{ fontFamily: "var(--font-display)" }}>
+            <h3 className="text-sm font-bold text-[var(--foreground)] font-display">
               文章发布趋势
             </h3>
-            <span className="text-xs px-2.5 py-1 rounded-lg bg-[var(--primary)]/10 text-[var(--primary)]" style={{ fontFamily: "var(--font-display)" }}>
+            <span className="text-xs px-2.5 py-1 rounded-lg bg-[var(--brand-subtle)] text-[var(--foreground)] font-display">
               近12个月
             </span>
           </div>
           <div style={{ height: 260 }} className="flex items-center justify-center">
             <div className="text-center">
-              <TrendingUp size={40} className="text-[var(--primary)]/40 mx-auto mb-3" />
-              <p className="text-sm text-foreground/50" style={{ fontFamily: "var(--font-display)" }}>
+              <TrendingUp size={40} className="text-[var(--muted-foreground)] mx-auto mb-3" />
+              <p className="text-sm text-[var(--muted-foreground)] font-display">
                 已发布 {stats.published_posts} 篇文章
               </p>
-              <p className="text-xs mt-1 text-foreground/30" style={{ fontFamily: "var(--font-display)" }}>
+              <p className="text-xs mt-1 text-[var(--muted-foreground)] font-display">
                 共 {stats.total_posts} 篇，草稿 {stats.draft_posts} 篇
               </p>
             </div>
@@ -195,34 +187,34 @@ const DashboardTab = ({ stats }: { stats: AdminStats }) => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5, duration: 0.4 }}
-          className="rounded-2xl p-5 glass-card"
+          className="rounded-2xl p-5 card"
         >
-          <h3 className="text-sm font-bold text-foreground/80 mb-4" style={{ fontFamily: "var(--font-display)" }}>
+          <h3 className="text-sm font-bold text-[var(--foreground)] mb-4 font-display">
             数据概览
           </h3>
           <div className="space-y-3">
             <div className="flex items-center gap-3 py-2">
-              <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: "rgba(124,106,255,0.12)" }}>
-                <FileEdit size={13} style={{ color: "#7c6aff" }} />
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-[var(--muted)] text-[var(--muted-foreground)]">
+                <FileEdit size={13} />
               </div>
-              <div className="text-xs text-foreground/65" style={{ fontFamily: "var(--font-display)" }}>
-                文章总数 <span className="text-foreground/90 font-semibold">{stats.total_posts}</span>，已发布 <span style={{ color: "#7c6aff" }}>{stats.published_posts}</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 py-2 border-t border-foreground/5">
-              <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: "rgba(56,189,248,0.12)" }}>
-                <MessageSquare size={13} style={{ color: "#38bdf8" }} />
-              </div>
-              <div className="text-xs text-foreground/65" style={{ fontFamily: "var(--font-display)" }}>
-                评论总数 <span className="text-foreground/90 font-semibold">{stats.total_comments}</span>
+              <div className="text-xs text-[var(--muted-foreground)] font-display">
+                文章总数 <span className="text-[var(--foreground)] font-semibold">{stats.total_posts}</span>，已发布 <span className="text-[var(--foreground)]">{stats.published_posts}</span>
               </div>
             </div>
-            <div className="flex items-center gap-3 py-2 border-t border-foreground/5">
-              <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: "rgba(52,211,153,0.12)" }}>
-                <UserPlus size={13} style={{ color: "#34d399" }} />
+            <div className="flex items-center gap-3 py-2 border-t border-[var(--border)]">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-[var(--muted)] text-[var(--muted-foreground)]">
+                <MessageSquare size={13} />
               </div>
-              <div className="text-xs text-foreground/65" style={{ fontFamily: "var(--font-display)" }}>
-                注册用户 <span className="text-foreground/90 font-semibold">{stats.total_users}</span>
+              <div className="text-xs text-[var(--muted-foreground)] font-display">
+                评论总数 <span className="text-[var(--foreground)] font-semibold">{stats.total_comments}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 py-2 border-t border-[var(--border)]">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-[var(--muted)] text-[var(--muted-foreground)]">
+                <UserPlus size={13} />
+              </div>
+              <div className="text-xs text-[var(--muted-foreground)] font-display">
+                注册用户 <span className="text-[var(--foreground)] font-semibold">{stats.total_users}</span>
               </div>
             </div>
           </div>
@@ -256,19 +248,19 @@ const UsersTab = ({
         <div className="w-full sm:w-72">
           <SearchInput value={usersSearch} onChange={setUsersSearch} placeholder="搜索用户名或邮箱..." />
         </div>
-        <div className="text-xs text-foreground/40" style={{ fontFamily: "var(--font-display)" }}>
+        <div className="text-xs text-[var(--muted-foreground)] font-display">
           共 {usersTotal} 位用户
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl glass-card">
-        <table className="w-full text-sm" style={{ fontFamily: "var(--font-display)" }}>
+      <div className="overflow-x-auto rounded-2xl card">
+        <table className="w-full text-sm font-display">
           <thead>
-            <tr className="border-b border-foreground/10">
+            <tr className="border-b border-[var(--border)]">
               {["ID", "用户名", "邮箱", "角色", "注册时间", "操作"].map((h) => (
                 <th
                   key={h}
-                  className="px-4 py-3 text-left text-xs font-semibold text-foreground/40"
+                  className="px-4 py-3 text-left text-xs font-semibold text-[var(--muted-foreground)]"
                 >
                   <div className="flex items-center gap-1">
                     {h}
@@ -286,54 +278,43 @@ const UsersTab = ({
                 variants={rowVariants}
                 initial="hidden"
                 animate="visible"
-                className="border-b border-foreground/5 transition-colors hover:bg-foreground/[0.02]"
+                className="border-b border-[var(--border)] transition-colors hover:bg-[var(--brand-subtle)]"
               >
-                <td className="px-4 py-3 text-xs font-mono text-foreground/40">
+                <td className="px-4 py-3 text-xs font-mono text-[var(--muted-foreground)]">
                   #{user.id}
                 </td>
-                <td className="px-4 py-3 font-medium text-foreground/85">
+                <td className="px-4 py-3 font-medium text-[var(--foreground)]">
                   {user.username}
                 </td>
-                <td className="px-4 py-3 text-xs text-foreground/50">
+                <td className="px-4 py-3 text-xs text-[var(--muted-foreground)]">
                   {user.email}
                 </td>
                 <td className="px-4 py-3">
                   <span
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border"
-                    style={{
-                      background: user.role === "admin" ? "rgba(124,106,255,0.12)" : "rgba(56,189,248,0.12)",
-                      color: user.role === "admin" ? "#7c6aff" : "#38bdf8",
-                      borderColor: user.role === "admin" ? "rgba(124,106,255,0.2)" : "rgba(56,189,248,0.2)",
-                    }}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border ${
+                      user.role === "admin"
+                        ? "bg-[var(--brand-subtle)] text-[var(--foreground)] border-[var(--border-strong)]"
+                        : "bg-[var(--muted)] text-[var(--muted-foreground)] border-[var(--border)]"
+                    }`}
                   >
                     {user.role === "admin" && <Shield size={10} />}
                     {user.role === "admin" ? "管理员" : "用户"}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-xs text-foreground/40">
+                <td className="px-4 py-3 text-xs text-[var(--muted-foreground)]">
                   {user.created_at}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => onToggleRole(user)}
-                      className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all hover:opacity-80"
-                      style={{
-                        background: "rgba(124,106,255,0.1)",
-                        border: "1px solid rgba(124,106,255,0.2)",
-                        color: "#7c6aff",
-                      }}
+                      className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all hover:opacity-80 bg-[var(--brand-subtle)] border border-[var(--border)] text-[var(--foreground)]"
                     >
                       切换角色
                     </button>
                     <button
                       onClick={() => onDeleteUser(user.id)}
-                      className="p-1.5 rounded-lg transition-all hover:opacity-80"
-                      style={{
-                        background: "rgba(239,68,68,0.08)",
-                        border: "1px solid rgba(239,68,68,0.15)",
-                        color: "#ef4444",
-                      }}
+                      className="p-1.5 rounded-lg transition-all hover:opacity-80 bg-[var(--destructive-subtle)] border border-[var(--destructive)]/20 text-[var(--destructive)]"
                     >
                       <Trash2 size={13} />
                     </button>
@@ -379,12 +360,11 @@ const PostsTab = ({
             <button
               key={status}
               onClick={() => { setPostsFilter(status); setPostsPage(1); }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border font-display ${
                 postsFilter === status
-                  ? "bg-[var(--primary)]/15 text-[var(--primary)] border-[var(--primary)]/30"
-                  : "bg-foreground/5 text-foreground/50 border-foreground/10 hover:bg-foreground/10"
+                  ? "bg-[var(--brand-subtle)] text-[var(--foreground)] border-[var(--border-strong)]"
+                  : "bg-[var(--muted)] text-[var(--muted-foreground)] border-[var(--border)] hover:bg-[var(--brand-subtle)]"
               }`}
-              style={{ fontFamily: "var(--font-display)" }}
             >
               {status === "all" ? "全部" : status === "published" ? "已发布" : "草稿"}
             </button>
@@ -392,14 +372,14 @@ const PostsTab = ({
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl glass-card">
-        <table className="w-full text-sm" style={{ fontFamily: "var(--font-display)" }}>
+      <div className="overflow-x-auto rounded-2xl card">
+        <table className="w-full text-sm font-display">
           <thead>
-            <tr className="border-b border-foreground/10">
+            <tr className="border-b border-[var(--border)]">
               {["ID", "标题", "作者", "状态", "浏览量", "创建时间", "操作"].map((h) => (
                 <th
                   key={h}
-                  className="px-4 py-3 text-left text-xs font-semibold text-foreground/40"
+                  className="px-4 py-3 text-left text-xs font-semibold text-[var(--muted-foreground)]"
                 >
                   <div className="flex items-center gap-1">
                     {h}
@@ -417,44 +397,38 @@ const PostsTab = ({
                 variants={rowVariants}
                 initial="hidden"
                 animate="visible"
-                className="border-b border-foreground/5 transition-colors hover:bg-foreground/[0.02]"
+                className="border-b border-[var(--border)] transition-colors hover:bg-[var(--brand-subtle)]"
               >
-                <td className="px-4 py-3 text-xs font-mono text-foreground/40">
+                <td className="px-4 py-3 text-xs font-mono text-[var(--muted-foreground)]">
                   #{post.id}
                 </td>
-                <td className="px-4 py-3 font-medium max-w-[200px] truncate text-foreground/85">
+                <td className="px-4 py-3 font-medium max-w-[200px] truncate text-[var(--foreground)]">
                   {post.title}
                 </td>
-                <td className="px-4 py-3 text-xs text-foreground/50">
+                <td className="px-4 py-3 text-xs text-[var(--muted-foreground)]">
                   {post.author}
                 </td>
                 <td className="px-4 py-3">
                   <span
-                    className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold border"
-                    style={{
-                      background: post.status === "published" ? "rgba(52,211,153,0.12)" : "rgba(245,158,11,0.12)",
-                      color: post.status === "published" ? "#34d399" : "#f59e0b",
-                      borderColor: post.status === "published" ? "rgba(52,211,153,0.2)" : "rgba(245,158,11,0.2)",
-                    }}
+                    className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold border ${
+                      post.status === "published"
+                        ? "bg-[var(--success-subtle)] text-[var(--success)] border-[var(--success)]/20"
+                        : "bg-[var(--brand-subtle)] text-[var(--muted-foreground)] border-[var(--border)]"
+                    }`}
                   >
                     {post.status === "published" ? "已发布" : "草稿"}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-xs font-mono text-foreground/50">
+                <td className="px-4 py-3 text-xs font-mono text-[var(--muted-foreground)]">
                   {(post.views ?? 0).toLocaleString()}
                 </td>
-                <td className="px-4 py-3 text-xs text-foreground/40">
+                <td className="px-4 py-3 text-xs text-[var(--muted-foreground)]">
                   {post.created_at}
                 </td>
                 <td className="px-4 py-3">
                   <button
                     onClick={() => onDeletePost(post.id)}
-                    className="p-1.5 rounded-lg transition-all hover:opacity-80"
-                    style={{
-                      background: "rgba(239,68,68,0.08)",
-                      border: "1px solid rgba(239,68,68,0.15)",
-                      color: "#ef4444",
-                    }}
+                    className="p-1.5 rounded-lg transition-all hover:opacity-80 bg-[var(--destructive-subtle)] border border-[var(--destructive)]/20 text-[var(--destructive)]"
                   >
                     <Trash2 size={13} />
                   </button>
@@ -492,19 +466,19 @@ const CommentsTab = ({
         <div className="w-full sm:w-72">
           <SearchInput value={commentsSearch} onChange={setCommentsSearch} placeholder="搜索评论内容或作者..." />
         </div>
-        <div className="text-xs text-foreground/40" style={{ fontFamily: "var(--font-display)" }}>
+        <div className="text-xs text-[var(--muted-foreground)] font-display">
           共 {commentsTotal} 条评论
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl glass-card">
-        <table className="w-full text-sm" style={{ fontFamily: "var(--font-display)" }}>
+      <div className="overflow-x-auto rounded-2xl card">
+        <table className="w-full text-sm font-display">
           <thead>
-            <tr className="border-b border-foreground/10">
+            <tr className="border-b border-[var(--border)]">
               {["ID", "评论内容", "作者", "所属文章", "时间", "操作"].map((h) => (
                 <th
                   key={h}
-                  className="px-4 py-3 text-left text-xs font-semibold text-foreground/40"
+                  className="px-4 py-3 text-left text-xs font-semibold text-[var(--muted-foreground)]"
                 >
                   {h}
                 </th>
@@ -519,34 +493,29 @@ const CommentsTab = ({
                 variants={rowVariants}
                 initial="hidden"
                 animate="visible"
-                className="border-b border-foreground/5 transition-colors hover:bg-foreground/[0.02]"
+                className="border-b border-[var(--border)] transition-colors hover:bg-[var(--brand-subtle)]"
               >
-                <td className="px-4 py-3 text-xs font-mono text-foreground/40">
+                <td className="px-4 py-3 text-xs font-mono text-[var(--muted-foreground)]">
                   #{comment.id}
                 </td>
                 <td className="px-4 py-3 max-w-[240px]">
-                  <div className="truncate text-xs leading-relaxed text-foreground/70">
+                  <div className="truncate text-xs leading-relaxed text-[var(--muted-foreground)]">
                     {comment.content}
                   </div>
                 </td>
-                <td className="px-4 py-3 text-xs font-medium text-foreground/70">
+                <td className="px-4 py-3 text-xs font-medium text-[var(--muted-foreground)]">
                   {comment.author_name}
                 </td>
-                <td className="px-4 py-3 text-xs max-w-[140px] truncate" style={{ color: "#7c6aff" }}>
+                <td className="px-4 py-3 text-xs max-w-[140px] truncate text-[var(--foreground)]">
                   {comment.post_title}
                 </td>
-                <td className="px-4 py-3 text-xs text-foreground/40">
+                <td className="px-4 py-3 text-xs text-[var(--muted-foreground)]">
                   {comment.created_at}
                 </td>
                 <td className="px-4 py-3">
                   <button
                     onClick={() => onDeleteComment(comment.id)}
-                    className="p-1.5 rounded-lg transition-all hover:opacity-80"
-                    style={{
-                      background: "rgba(239,68,68,0.08)",
-                      border: "1px solid rgba(239,68,68,0.15)",
-                      color: "#ef4444",
-                    }}
+                    className="p-1.5 rounded-lg transition-all hover:opacity-80 bg-[var(--destructive-subtle)] border border-[var(--destructive)]/20 text-[var(--destructive)]"
                   >
                     <Trash2 size={13} />
                   </button>
@@ -570,20 +539,21 @@ const SidebarContent = ({
   onToggleCollapse: () => void;
   onLogout: () => void;
   closeMobile: () => void;
-}) => (
+}) => {
+  const navigate = useNavigate();
+  return (
   <div className="flex flex-col h-full">
     <div
-      className="flex items-center gap-2.5 px-4 py-5 cursor-pointer"
-      onClick={closeMobile}
+      className="flex items-center gap-2.5 px-4 py-5 cursor-pointer hover:opacity-80 transition-opacity"
+      onClick={() => { closeMobile(); navigate("/home"); }}
     >
       <div
-        className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-        style={{ background: "linear-gradient(135deg, #7c6aff, #38bdf8)", boxShadow: "0 4px 15px rgba(124,106,255,0.3)" }}
+        className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-[var(--foreground)] text-[var(--background)]"
       >
-        <Sparkles size={18} className="text-white fill-white/20" />
+        <Sparkles size={18} />
       </div>
       {!sidebarCollapsed && (
-        <span className="text-lg font-bold tracking-tight text-foreground" style={{ fontFamily: "var(--font-display)" }}>
+        <span className="text-lg font-bold tracking-tight text-[var(--foreground)] font-display">
           Admin
         </span>
       )}
@@ -597,19 +567,17 @@ const SidebarContent = ({
             <button
               key={item.key}
               onClick={() => onTabChange(item.key)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all relative ${
-                isActive ? "text-[var(--primary)]" : "text-foreground/55 hover:text-foreground/80"
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all relative font-display ${
+                isActive ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
               }`}
               style={{
-                background: isActive ? "rgba(124,106,255,0.12)" : "transparent",
-                fontFamily: "var(--font-display)",
+                background: isActive ? "var(--brand-subtle)" : "transparent",
               }}
             >
               {isActive && (
                 <motion.div
                   layoutId="sidebar-active"
-                  className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full"
-                  style={{ background: "linear-gradient(180deg, #7c6aff, #38bdf8)" }}
+                  className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-[var(--foreground)]"
                   transition={{ type: "spring", stiffness: 350, damping: 30 }}
                 />
               )}
@@ -621,26 +589,25 @@ const SidebarContent = ({
       </div>
     </div>
 
-    <div className="px-3 pb-4 space-y-2 border-t border-foreground/10 pt-3">
+    <div className="px-3 pb-4 space-y-2 border-t border-[var(--border)] pt-3">
       <button
         onClick={onToggleCollapse}
-        className="w-full hidden lg:flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all text-foreground/40 hover:text-foreground/70"
-        style={{ fontFamily: "var(--font-display)" }}
+        className="w-full hidden lg:flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all text-[var(--muted-foreground)] hover:text-[var(--foreground)] font-display"
       >
         {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
         {!sidebarCollapsed && <span>收起侧栏</span>}
       </button>
       <button
         onClick={onLogout}
-        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all hover:bg-red-500/5 text-red-500/70 hover:text-red-500"
-        style={{ fontFamily: "var(--font-display)" }}
+        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all hover:bg-[var(--destructive-subtle)] text-[var(--destructive)] font-display"
       >
         <LogOut size={18} />
         {!sidebarCollapsed && <span>退出登录</span>}
       </button>
     </div>
   </div>
-);
+  );
+};
 
 const Admin = () => {
   const navigate = useNavigate();
@@ -668,8 +635,12 @@ const Admin = () => {
   const [commentsTotal, setCommentsTotal] = useState(0);
   const [commentsPage, setCommentsPage] = useState(1);
   const [commentsSearch, setCommentsSearch] = useState("");
+  const [backendOk, setBackendOk] = useState(true);
 
-  const loadedTabs = useRef<Set<string>>(new Set());
+  // @cuiruoni+P2修复：健康状态改为真实检测，不再硬编码"系统运行正常"
+  useEffect(() => {
+    checkBackendHealth().then(setBackendOk);
+  }, []);
 
   useEffect(() => {
     adminApi.stats().then(setStats);
@@ -693,17 +664,23 @@ const Admin = () => {
     setCommentsTotal(res.total);
   }, [commentsPage]);
 
+  // @cuiruoni+P1修复：翻页、切换状态筛选或切换Tab时重新请求数据，修复分页不生效的问题
+  useEffect(() => {
+    if (activeTab === "users") loadUsers();
+  }, [activeTab, usersPage, loadUsers]);
+
+  useEffect(() => {
+    if (activeTab === "posts") loadPosts();
+  }, [activeTab, postsPage, postsFilter, loadPosts]);
+
+  useEffect(() => {
+    if (activeTab === "comments") loadComments();
+  }, [activeTab, commentsPage, loadComments]);
+
   const handleTabChange = useCallback((tab: string) => {
     setActiveTab(tab);
     setMobileMenuOpen(false);
-
-    if (!loadedTabs.current.has(tab)) {
-      loadedTabs.current.add(tab);
-      if (tab === "users") loadUsers();
-      if (tab === "posts") loadPosts();
-      if (tab === "comments") loadComments();
-    }
-  }, [loadUsers, loadPosts, loadComments]);
+  }, []);
 
   const handleToggleRole = useCallback(async (user: AdminUser) => {
     const newRole = user.role === "admin" ? "user" : "admin";
@@ -764,30 +741,28 @@ const Admin = () => {
     setMobileMenuOpen(false);
   }, []);
 
-  useEffect(() => {
-    loadedTabs.current.add("dashboard");
-  }, []);
-
   return (
-    <div data-cmp="Admin" className="min-h-screen relative bg-background" style={{ fontFamily: "var(--font-display)" }}>
-      <GlassBackground showParticles={false} />
+    <div data-cmp="Admin" className="min-h-screen relative bg-background font-display">
+      <GlassBackground />
 
       {/* 移动端顶部栏 */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 h-14 bg-background/85 backdrop-blur-xl border-b border-foreground/10">
-        <div className="flex items-center gap-2.5">
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 h-14 bg-[var(--background)]/85 backdrop-blur-xl border-b border-[var(--border)]">
+        <div
+          className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity"
+          onClick={() => navigate("/home")}
+        >
           <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: "linear-gradient(135deg, #7c6aff, #38bdf8)" }}
+            className="w-8 h-8 rounded-lg flex items-center justify-center bg-[var(--foreground)] text-[var(--background)]"
           >
-            <Sparkles size={15} className="text-white fill-white/20" />
+            <Sparkles size={15} />
           </div>
-          <span className="text-sm font-bold text-foreground">Admin</span>
+          <span className="text-sm font-bold text-[var(--foreground)]">Admin</span>
         </div>
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="w-9 h-9 rounded-lg flex items-center justify-center bg-foreground/5 border border-foreground/10"
+          className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--muted)] border border-[var(--border)]"
         >
-          {mobileMenuOpen ? <X size={18} className="text-foreground/70" /> : <Menu size={18} className="text-foreground/70" />}
+          {mobileMenuOpen ? <X size={18} className="text-[var(--muted-foreground)]" /> : <Menu size={18} className="text-[var(--muted-foreground)]" />}
         </button>
       </div>
 
@@ -798,7 +773,7 @@ const Admin = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="lg:hidden fixed inset-0 z-40 bg-foreground/30 backdrop-blur-sm"
+            className="lg:hidden fixed inset-0 z-40 bg-[var(--foreground)]/30 backdrop-blur-sm"
             onClick={closeMobile}
           />
         )}
@@ -812,7 +787,7 @@ const Admin = () => {
             animate={{ x: 0 }}
             exit={{ x: -280 }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="lg:hidden fixed left-0 top-0 bottom-0 z-50 w-[260px] bg-background/95 backdrop-blur-xl border-r border-foreground/10"
+            className="lg:hidden fixed left-0 top-0 bottom-0 z-50 w-[260px] bg-[var(--background)]/95 backdrop-blur-xl border-r border-[var(--border)]"
           >
             <SidebarContent
               activeTab={activeTab}
@@ -828,7 +803,7 @@ const Admin = () => {
 
       {/* 桌面端侧边栏 */}
       <div
-        className="hidden lg:block fixed left-0 top-0 bottom-0 z-30 transition-all duration-300 bg-background/85 backdrop-blur-xl border-r border-foreground/10"
+        className="hidden lg:block fixed left-0 top-0 bottom-0 z-30 transition-all duration-300 bg-[var(--card)] border-r border-[var(--border)]"
         style={{ width: sidebarCollapsed ? 72 : 240 }}
       >
         <SidebarContent
@@ -856,16 +831,16 @@ const Admin = () => {
             className="flex items-center justify-between mb-6"
           >
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-foreground">
+              <h1 className="text-xl sm:text-2xl font-bold text-[var(--foreground)]">
                 {sidebarItems.find((s) => s.key === activeTab)?.label ?? "仪表盘"}
               </h1>
-              <p className="text-xs mt-1 text-foreground/40">
+              <p className="text-xs mt-1 text-[var(--muted-foreground)]">
                 管理控制台 / {sidebarItems.find((s) => s.key === activeTab)?.label}
               </p>
             </div>
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs bg-emerald-500/10 border border-emerald-500/15 text-emerald-600">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              系统运行正常
+            <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs border ${backendOk ? "bg-[var(--success-subtle)] border-[var(--success)]/15 text-[var(--success)]" : "bg-[var(--destructive-subtle)] border-[var(--destructive)]/20 text-[var(--destructive)]"}`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${backendOk ? "bg-[var(--success)]" : "bg-[var(--destructive)]"}`} />
+              {backendOk ? "系统运行正常" : "后端连接异常"}
             </div>
           </motion.div>
 

@@ -105,7 +105,7 @@ if exist "%BACKEND_EXE%" (
 echo.
 echo [4/5] Installing frontend dependencies...
 
-cd /d "%ROOT%\react"
+cd /d "%ROOT%\source\frontend-source"
 
 if not exist "node_modules" (
     echo       Installing npm packages...
@@ -134,7 +134,7 @@ timeout /t 3 /nobreak >nul
 
 :: Start frontend
 echo       Starting frontend dev server...
-cd /d "%ROOT%\react"
+cd /d "%ROOT%\source\frontend-source"
 start "cpp-blog-frontend" cmd /k "npm run dev"
 cd /d "%ROOT%"
 

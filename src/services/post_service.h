@@ -11,7 +11,8 @@ namespace post_service {
 
 json::object post_to_json(const Post& post);
 Post json_to_post(const json::object& obj);
-json::array list_posts(int page, int page_size, const std::string& status, int& total);
+json::array list_posts(int page, int page_size, const std::string& status, int& total,
+                       int64_t viewer_id = 0, bool is_admin = false);
 Post get_post(int64_t id, bool increment_view = true);
 void increment_view_count(int64_t id);
 int64_t create_post(const Post& post);
