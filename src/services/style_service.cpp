@@ -226,11 +226,8 @@ void prune_finished_tasks() {
 
 void process_task(std::string task_id, std::string style,
                   std::string image_mime, std::string image_base64) {
-    // @cuiruoni+登记运行任务（shutdown 时等待归零）
-    {
-        std::lock_guard<std::mutex> lock(g_sem_mutex);
-        ++g_running_tasks;
-    }
+    // @cuiruoni+运行计数已在 submit() 锁内登记，此处不再 ++；
+    // @cuiruoni+running_guard 在任务结束时递减并唤醒 shutdown 等待者
     auto running_guard = [&]() {
         bool stop = false;
         {
@@ -301,6 +298,8 @@ void process_task(std::string task_id, std::string style,
     int net_errors = 0;
     for (int i = 0; i < kMaxPollTimes; ++i) {
         // @cuiruoni+shutdown 时提前退出轮询，避免进程退出后线程仍访问全局状态
+        // @cuiruoni+锁序约定：全程仅允许 g_sem_mutex → g_task_mutex 单向获取（此处持 g_sem_mutex
+        // @cuiruoni+调 update_status 获取 g_task_mutex 即为此约定），禁止反向，否则死锁
         {
             std::lock_guard<std::mutex> lock(g_sem_mutex);
             if (g_shutdown) {
@@ -383,6 +382,9 @@ std::string submit(const std::string& style, const std::string& image_mime,
             spdlog::warn("[style] queue full ({} tasks), reject submit", g_running_tasks);
             return "__QUEUE_FULL__";
         }
+        // @cuiruoni+P1修复：在锁内登记运行任务数，与 shutdown 置位原子化，
+        // @cuiruoni+避免"shutdown 已见 0、线程尚未登记"的窗口竞态（detached 线程访问已析构全局）
+        ++g_running_tasks;
     }
 
     std::string task_id = make_task_id();
