@@ -5,6 +5,7 @@ import {
   Upload, Wand2, Loader2, Download, ImagePlus, AlertCircle, CheckCircle2,
 } from "lucide-react";
 import { styleApi, type StyleOption, type StyleTaskInfo } from "../lib/api";
+import { uploadImage } from "../lib/uploader";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
@@ -43,10 +44,13 @@ const StatusBadge = ({ status }: { status: string }) => {
 
 const StyleTransfer = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [imageData, setImageData] = useState<{ mime: string; base64: string; preview: string } | null>(null);
+  const cancelRef = useRef<AbortController | null>(null);
+  const [imageData, setImageData] = useState<{ file: File; preview: string } | null>(null);
   const [selectedStyle, setSelectedStyle] = useState<string>("gathered");
   const [taskId, setTaskId] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadPct, setUploadPct] = useState(0);
 
   // 拉取可用风格列表
   const { data: styles = [] } = useQuery({
@@ -78,12 +82,9 @@ const StyleTransfer = () => {
     }
     const reader = new FileReader();
     reader.onload = () => {
-      const result = reader.result as string;
-      const comma = result.indexOf(",");
       setImageData({
-        mime: file.type || "image/png",
-        base64: comma >= 0 ? result.slice(comma + 1) : "",
-        preview: result,
+        file,
+        preview: reader.result as string,
       });
       setTaskId(null);
     };
@@ -99,13 +100,31 @@ const StyleTransfer = () => {
       toast.error("请选择风格");
       return;
     }
+    setUploading(true);
+    setUploadPct(0);
+    const controller = new AbortController();
+    cancelRef.current = controller;
     try {
-      const res = await styleApi.transfer(selectedStyle, imageData.base64, imageData.mime);
-      setTaskId(res.task_id);
-      toast.success("任务已提交，AI 正在绘制");
+      // @cuiruoni+分片上传（断点续传 + 进度）→ 提交生成任务
+      const taskIdResult = await uploadImage(imageData.file, selectedStyle, (p) => {
+        setUploadPct(p.percent);
+      }, controller.signal);
+      setTaskId(taskIdResult);
+      toast.success("上传完成，AI 正在绘制");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "提交失败");
+      if ((e as DOMException)?.name === "AbortError") {
+        toast.info("上传已取消");
+      } else {
+        toast.error(e instanceof Error ? e.message : "上传/提交失败");
+      }
+    } finally {
+      cancelRef.current = null;
+      setUploading(false);
     }
+  };
+
+  const handleCancelUpload = () => {
+    cancelRef.current?.abort();
   };
 
   const handleReset = () => {
@@ -212,13 +231,44 @@ const StyleTransfer = () => {
                 ))}
               </div>
 
+              {/* @cuiruoni+上传进度条：分片上传时显示实时进度（断点续传） */}
+              {uploading && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)] mb-1.5">
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 size={12} className="animate-spin" /> 上传中（支持断点续传）...
+                    </span>
+                    <span className="flex items-center gap-2">
+                      {uploadPct}%
+                      <button
+                        onClick={handleCancelUpload}
+                        className="text-xs px-2 py-0.5 rounded-md border border-[var(--border)] hover:bg-[var(--muted)] transition-colors"
+                      >
+                        取消
+                      </button>
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-[var(--muted)] overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-[var(--primary)] transition-all duration-300"
+                      style={{ width: `${uploadPct}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
               <Button
                 className="w-full mt-5"
                 size="lg"
                 onClick={handleSubmit}
-                disabled={!imageData || running || task?.status === "done"}
+                disabled={!imageData || uploading || running || task?.status === "done"}
               >
-                {running ? (
+                {uploading ? (
+                  <>
+                    <Loader2 size={16} className="mr-2 animate-spin" />
+                    上传中 {uploadPct}%
+                  </>
+                ) : running ? (
                   <>
                     <Loader2 size={16} className="mr-2 animate-spin" />
                     {STATUS_TEXT[task?.status ?? "processing"]}

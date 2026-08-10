@@ -15,6 +15,7 @@ import {
   loadBackground, saveBackground, clearBackground, urlToDataUrl,
   type BackgroundSetting,
 } from "../lib/background";
+import { uploadImage } from "../lib/uploader";
 
 const settingsSections = [
   { key: `profile`, label: `个人资料`, icon: User },
@@ -156,8 +157,11 @@ const Settings = () => {
   const [bgPreview, setBgPreview] = useState<string | null>(null);
   const [bgStyleId, setBgStyleId] = useState("gathered");
   const [bgGenerating, setBgGenerating] = useState(false);
+  const [bgUploadPct, setBgUploadPct] = useState(0);
   const [styles, setStyles] = useState<StyleOption[]>([]);
   const [serverBg, setServerBg] = useState<BackgroundSettingInfo | null>(null);
+  const fileRef = useRef<File | null>(null);
+  const bgCancelRef = useRef<AbortController | null>(null);
 
   // @cuiruoni+组件卸载标记：异步轮询/压缩回调据此停止，防止对已卸载组件 setState
   const mountedRef = useRef(true);
@@ -289,6 +293,7 @@ const Settings = () => {
       toast.error("图片不能超过 10MB");
       return;
     }
+    fileRef.current = file; // @cuiruoni+保留 File 引用供 AI 风格化分片上传使用
     const reader = new FileReader();
     reader.onload = async () => {
       const dataUrl = reader.result as string;
@@ -305,27 +310,27 @@ const Settings = () => {
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-  // @cuiruoni+AI 风格化背景：上传图 → 后端生成 → 结果图下载为 dataURL 存本机 → 应用
+  // @cuiruoni+AI 风格化背景：分片上传（断点续传+进度）→ 生成 → 结果图下载为 dataURL 存本机 → 应用
   const generateBg = async () => {
-    if (!bgPreview) {
+    if (!fileRef.current) {
       toast.error("请先选择图片");
       return;
     }
     setBgGenerating(true);
+    setBgUploadPct(0);
+    const controller = new AbortController();
+    bgCancelRef.current = controller;
     try {
-      const comma = bgPreview.indexOf(",");
-      const base64 = comma >= 0 ? bgPreview.slice(comma + 1) : "";
-      const mime = bgPreview.startsWith("data:")
-        ? bgPreview.slice(5, bgPreview.indexOf(";"))
-        : "image/png";
-      const res = await styleApi.transfer(bgStyleId, base64, mime);
-      toast.success("任务已提交，AI 正在绘制...");
+      const taskId = await uploadImage(fileRef.current, bgStyleId, (p) => {
+        setBgUploadPct(p.percent);
+      }, controller.signal);
+      toast.success("上传完成，AI 正在绘制...");
       for (let i = 0; i < 120; i++) {
         // @cuiruoni+组件卸载后停止轮询，避免对已卸载组件 setState
         if (!mountedRef.current) return;
         await sleep(3000);
         if (!mountedRef.current) return;
-        const task = await styleApi.getTask(res.task_id);
+        const task = await styleApi.getTask(taskId);
         if (task.status === "done" && task.result_url) {
           const dataUrl = await urlToDataUrl(task.result_url);
           if (!mountedRef.current) return;
@@ -341,8 +346,13 @@ const Settings = () => {
       }
       toast.error("生成超时，请重试");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "生成失败");
+      if ((e as DOMException)?.name === "AbortError") {
+        toast.info("上传已取消");
+      } else {
+        toast.error(e instanceof Error ? e.message : "上传/生成失败");
+      }
     } finally {
+      bgCancelRef.current = null;
       setBgGenerating(false);
     }
   };
@@ -764,11 +774,27 @@ const Settings = () => {
                       className="btn-primary flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50"
                     >
                       {bgGenerating ? (
-                        <><Loader2 size={14} className="animate-spin" /> AI 生成中（约 1-2 分钟）...</>
+                        <><Loader2 size={14} className="animate-spin" /> {bgUploadPct > 0 && bgUploadPct < 100 ? `上传中 ${bgUploadPct}%（断点续传）...` : "AI 生成中（约 1-2 分钟）..."}</>
                       ) : (
                         <><Wand2 size={14} /> 生成风格化背景</>
                       )}
                     </button>
+                    {bgGenerating && bgUploadPct > 0 && bgUploadPct < 100 && (
+                      <button
+                        onClick={() => bgCancelRef.current?.abort()}
+                        className="ml-2 px-3 py-2.5 rounded-xl text-xs border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--muted)] transition-colors"
+                      >
+                        取消
+                      </button>
+                    )}
+                    {bgGenerating && bgUploadPct > 0 && bgUploadPct < 100 && (
+                      <div className="mt-3 h-1.5 rounded-full bg-[var(--muted)] overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-[var(--primary)] transition-all duration-300"
+                          style={{ width: `${bgUploadPct}%` }}
+                        />
+                      </div>
+                    )}
                   </div>
 
                   {/* 服务器留存信息 */}

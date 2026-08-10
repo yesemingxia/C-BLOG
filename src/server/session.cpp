@@ -43,6 +43,10 @@ void Session::read_request() {
             std::string path = target.substr(0, target.find('?'));
             if (path == "/api/styles/transfer") {
                 self->parser_->body_limit(25 * 1024 * 1024);
+            } else if (path.find("/api/styles/upload/") == 0 &&
+                       self->req_.method() == http::verb::put) {
+                // @cuiruoni+分片上传：每片 1MB，放宽到 2MB 留余量（避免与默认 1MB 上限紧贴）
+                self->parser_->body_limit(2 * 1024 * 1024);
             }
 
             http::async_read(self->stream_, self->buffer_, *self->parser_,
