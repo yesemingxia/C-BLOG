@@ -10,6 +10,7 @@ namespace upload_service {
 
 struct InitResult {
     bool ok = false;
+    int http_status = 200;    // @cuiruoni+失败时状态码（400 参数/413 过大/503 会话上限）
     std::string upload_id;
     std::string error;
     size_t chunk_received = 0;

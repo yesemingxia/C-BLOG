@@ -83,10 +83,12 @@ void remove_session_locked(const std::string& id) {
 InitResult init(int64_t owner_id, size_t file_size, const std::string& mime) {
     InitResult result;
     if (file_size == 0 || file_size > kMaxFileSize) {
+        result.http_status = 413;
         result.error = "文件大小必须大于 0 且不超过 12MB";
         return result;
     }
     if (!is_valid_mime(mime)) {
+        result.http_status = 400;
         result.error = "不支持的图片格式";
         return result;
     }
@@ -96,6 +98,7 @@ InitResult init(int64_t owner_id, size_t file_size, const std::string& mime) {
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         if (g_sessions.size() >= kMaxSessions) {
+            result.http_status = 503;
             result.error = "上传会话过多，请稍后重试";
             return result;
         }

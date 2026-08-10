@@ -71,10 +71,10 @@ function xhrPut(
     xhr.onabort = () => reject(new DOMException("已取消", "AbortError"));
     if (signal) {
       if (signal.aborted) {
-        xhr.abort();
-      } else {
-        signal.addEventListener("abort", () => xhr.abort(), { once: true });
+        reject(new DOMException("已取消", "AbortError"));
+        return;
       }
+      signal.addEventListener("abort", () => xhr.abort(), { once: true });
     }
     xhr.send(blob);
   });
@@ -174,11 +174,13 @@ export async function uploadImage(
     });
   }
 
-  localStorage.removeItem(resumeKey);
   const completed = await api<{ task_id: string }>(`/api/styles/upload/${uploadId}/complete`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ style }),
   });
+  // @cuiruoni+complete 成功后才清除断点记录；失败（如队列满 503）时保留，
+  // @cuiruoni+用户稍后重试可直接续传已上传的分片
+  localStorage.removeItem(resumeKey);
   return completed.task_id;
 }

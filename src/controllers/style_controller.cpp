@@ -303,8 +303,9 @@ http::response<http::string_body> handle_upload_init(
 
         auto r = upload_service::init(user_id, file_size, file_mime);
         if (!r.ok) {
-            http::response<http::string_body> res{http::status::bad_request, req.version()};
-            res.body() = response::error(400, r.error);
+            http::response<http::string_body> res{
+                static_cast<http::status>(r.http_status), req.version()};
+            res.body() = response::error(r.http_status, r.error);
             res.prepare_payload();
             return res;
         }
