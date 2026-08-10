@@ -106,11 +106,9 @@ export async function uploadImage(
   if (uploadId) {
     try {
       const q = await api<UploadQueryResult>(`/api/styles/upload/${uploadId}`);
-      if (q.received >= q.file_size) {
-        uploadId = null; // @cuiruoni+旧会话已完成，重新开始
-      } else {
-        received = q.received;
-      }
+      // @cuiruoni+会话已传满（如 complete 曾因队列满 503 失败）时保留会话，
+      // @cuiruoni+上传循环将全部跳过，直接走 complete 续传——避免全量重传
+      received = q.received;
     } catch {
       uploadId = null; // @cuiruoni+会话已过期，重新开始
     }
