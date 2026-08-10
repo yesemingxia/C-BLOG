@@ -37,8 +37,8 @@ constexpr int kMaxPollTimes = 120;
 constexpr int kMaxConsecutiveNetErrors = 3;
 // @cuiruoni+已完成/失败任务的保留时长，超过后清理记录与文件
 constexpr int kFinishedTaskRetainHours = 24;
-// @cuiruoni+shutdown 最大等待秒数
-constexpr int kShutdownWaitSeconds = 30;
+// @cuiruoni+shutdown 最大等待秒数（须大于"轮询 sleep 3s + 查询超时"最坏时长）
+constexpr int kShutdownWaitSeconds = 45;
 
 std::mutex g_task_mutex;
 std::map<std::string, StyleTask> g_tasks;
@@ -258,6 +258,9 @@ void process_task(std::string task_id, std::string style,
         }
         if (!acquired) {
             update_status(task_id, "failed", g_shutdown ? "服务正在关闭" : "系统繁忙，排队超时，请稍后重试");
+            // @cuiruoni+P0修复：必须先释放 g_sem_mutex 再调用 running_guard()，
+            // @cuiruoni+否则非递归 mutex 重复加锁导致死锁（排队超时/关闭路径必触发）
+            lock.unlock();
             running_guard();
             return;
         }

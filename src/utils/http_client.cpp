@@ -139,6 +139,8 @@ static Response perform(const std::string& method, const std::string& url,
             auto results = resolver.resolve(host, port);
             stream.expires_after(std::chrono::seconds(timeout_seconds));
             stream.connect(results);
+            // @cuiruoni+connect 会消耗超时，完成后重新设置读写超时（与 HTTPS 分支一致）
+            stream.expires_after(std::chrono::seconds(timeout_seconds));
 
             http::write(stream, make_request(method, target, host, body, headers));
 

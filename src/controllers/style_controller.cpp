@@ -226,8 +226,27 @@ http::response<http::string_body> handle_get_file(
     }
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
+    // @cuiruoni+按 magic bytes 探测图片格式，避免固定 image/png 与实际内容不符
+    std::string content_type = "application/octet-stream";
+    if (content.size() >= 8) {
+        const unsigned char* b = reinterpret_cast<const unsigned char*>(content.data());
+        if (b[0] == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G') {
+            content_type = "image/png";
+        } else if (b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF) {
+            content_type = "image/jpeg";
+        } else if (b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F' &&
+                   content.size() >= 12 &&
+                   content[8] == 'W' && content[9] == 'E' && content[10] == 'B' && content[11] == 'P') {
+            content_type = "image/webp";
+        } else if (b[0] == 'G' && b[1] == 'I' && b[2] == 'F') {
+            content_type = "image/gif";
+        } else if (b[0] == 'B' && b[1] == 'M') {
+            content_type = "image/bmp";
+        }
+    }
+
     http::response<http::string_body> res{http::status::ok, req.version()};
-    res.set(http::field::content_type, "image/png");
+    res.set(http::field::content_type, content_type);
     res.set(http::field::cache_control, "public, max-age=86400");
     res.body() = std::move(content);
     res.prepare_payload();

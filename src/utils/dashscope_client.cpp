@@ -94,7 +94,7 @@ QueryResult query_task(const std::string& api_key, const std::string& task_id) {
     std::map<std::string, std::string> headers;
     headers["Authorization"] = "Bearer " + api_key;
 
-    auto resp = http_client::get(kTaskUrlPrefix + task_id, headers, 30);
+    auto resp = http_client::get(kTaskUrlPrefix + task_id, headers, 10);
     if (resp.status != 200) {
         result.status = "";
         result.error = "query failed, http " + std::to_string(resp.status) + ": " + resp.body;
