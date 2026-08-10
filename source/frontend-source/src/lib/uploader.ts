@@ -172,6 +172,9 @@ export async function uploadImage(
     });
   }
 
+  // @cuiruoni+断点续传时全部跳过时也上报 100%，保证 UI 进度完整
+  onProgress({ loaded: total, total, percent: 100 });
+
   const completed = await api<{ task_id: string }>(`/api/styles/upload/${uploadId}/complete`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
