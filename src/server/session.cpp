@@ -5,6 +5,8 @@
 #include "middleware/cors_middleware.h"
 #include "middleware/rate_limiter.h"
 
+#include <string>
+
 Session::Session(tcp::socket&& socket, Router& router)
     : stream_(std::move(socket)), router_(router) {
     spdlog::debug("Session created");
@@ -19,13 +21,12 @@ void Session::read_request() {
     // @cuiruoni+每次读取新请求前重置请求对象和解析器，避免残留数据
     req_ = http::request<http::string_body>{};
     parser_ = std::make_unique<http::request_parser<http::string_body>>();
-    // @cuiruoni+P0修复：在解析阶段就限制请求体大小，防止超大body先读入内存导致OOM
-    parser_->body_limit(Config::instance().max_request_body_bytes());
+    // @cuiruoni+P0修复：解析层必须放宽（64MB）—— beast 对带 Content-Length 的请求
+    // @cuiruoni+会在**解析头部时**就按当时的限额校验，头部之后才调 body_limit 为时已晚。
+    // @cuiruoni+真正的按路径限额在下面读到头部后人工执行（见 enforce_body_cap）。
+    parser_->body_limit(64 * 1024 * 1024);
 
     auto self = shared_from_this();
-    // @cuiruoni+分两步读取：先读请求头拿到路径，再按路径设置 body 上限。
-    // @cuiruoni+仅图片上传接口（/api/styles/transfer）放宽到 25MB，其余接口保持
-    // @cuiruoni+默认 1MB，避免全局放大内存 DoS 面。
     http::async_read_header(stream_, buffer_, *parser_,
         [self](beast::error_code ec, std::size_t) {
             if (ec) {
@@ -41,12 +42,33 @@ void Session::read_request() {
             self->req_ = self->parser_->get();
             std::string target(self->req_.target());
             std::string path = target.substr(0, target.find('?'));
-            if (path == "/api/styles/transfer") {
-                self->parser_->body_limit(25 * 1024 * 1024);
-            } else if (path.find("/api/styles/upload/") == 0 &&
-                       self->req_.method() == http::verb::put) {
-                // @cuiruoni+分片上传：每片 1MB，放宽到 2MB 留余量（避免与默认 1MB 上限紧贴）
-                self->parser_->body_limit(2 * 1024 * 1024);
+
+            // @cuiruoni+按路径的 body 限额（超过即 413）：
+            //   图片上传（base64）12MB / 视频分片 3MB / 其余 1MB。
+            // @cuiruoni+防 DoS 语义不变：解析层 64MB 兜底 + 每条路径白名单放大。
+            size_t declared = 0;
+            auto cl = self->req_.find(http::field::content_length);
+            if (cl != self->req_.end()) {
+                declared = static_cast<size_t>(std::stoull(std::string(cl->value())));
+            }
+            size_t cap = 1024 * 1024; // 默认 1MB
+            std::string method(self->req_.method_string());
+            if (path == "/api/upload/image") {
+                cap = 12 * 1024 * 1024;
+            } else if (path.find("/api/videos/upload/") == 0 && method == "PUT") {
+                cap = 3 * 1024 * 1024; // 视频分片：单片 1MB（最大 2MB）+ 余量
+            }
+            if (declared > cap) {
+                spdlog::warn("Request body too large ({} > cap {}): {}", declared, cap, path);
+                http::response<http::string_body> res{http::status::payload_too_large,
+                                                      self->req_.version()};
+                res.set(http::field::content_type, "application/json");
+                res.body() = R"({"code":413,"message":"Request body too large","data":null})";
+                res.prepare_payload();
+                self->res_ = std::move(res);
+                self->keep_alive_ = false;
+                self->write_response();
+                return;
             }
 
             http::async_read(self->stream_, self->buffer_, *self->parser_,
@@ -54,16 +76,6 @@ void Session::read_request() {
                     if (!ec2) {
                         self->req_ = self->parser_->get();
                         self->handle_request();
-                    } else if (ec2 == http::error::body_limit) {
-                        // @cuiruoni+解析器检测到请求体超过限制，直接返回413并关闭连接
-                        spdlog::warn("Request body too large");
-                        http::response<http::string_body> res{http::status::payload_too_large, self->req_.version()};
-                        res.set(http::field::content_type, "application/json");
-                        res.body() = R"({"code":413,"message":"Request body too large","data":null})";
-                        res.prepare_payload();
-                        self->res_ = std::move(res);
-                        self->keep_alive_ = false;
-                        self->write_response();
                     } else if (ec2 == http::error::end_of_stream) {
                         // @cuiruoni+客户端正常关闭连接
                         self->close();
@@ -107,7 +119,6 @@ void Session::handle_request() {
         else if (path == "/api/auth/register") endpoint = "register";
         else if (path.find("/api/posts/") != std::string::npos && path.find("/comments") != std::string::npos) endpoint = "comment";
         else if (path == "/api/contact") endpoint = "contact";
-        else if (path == "/api/styles/transfer") endpoint = "style";
 
         // @cuiruoni+优先使用X-Real-IP（Nginx设置），回退X-Client-IP（本机直连时由Session写入）
         std::string client_ip = req_.find("X-Real-IP") != req_.end()

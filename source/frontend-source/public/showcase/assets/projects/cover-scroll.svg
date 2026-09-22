@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" width="640" height="400" role="img" aria-label="Scene Scroll">
+  <defs>
+    <linearGradient id="a" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0E3A4A"/><stop offset="1" stop-color="#071018"/>
+    </linearGradient>
+    <linearGradient id="b" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#67E8F9" stop-opacity=".85"/><stop offset="1" stop-color="#67E8F9" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="400" fill="url(#a)"/>
+  <g fill="none" stroke="rgba(255,255,255,.14)" stroke-width="1.5">
+    <rect x="80" y="120" width="200" height="160" rx="16"/>
+    <rect x="300" y="120" width="200" height="160" rx="16"/>
+    <rect x="520" y="120" width="40" height="160" rx="16"/>
+  </g>
+  <rect x="80" y="120" width="200" height="160" rx="16" fill="url(#b)" opacity=".5"/>
+  <g fill="rgba(255,255,255,.5)"><circle cx="160" cy="200" r="4"/><circle cx="380" cy="200" r="4"/></g>
+  <path d="M520 200h40" stroke="#67E8F9" stroke-width="3" stroke-linecap="round"/>
+</svg>

@@ -11,19 +11,15 @@ import { CursorGlow } from "./components/effects";
 import NotFound from "./pages/NotFound";
 
 // 核心公开页面直接同步加载，避免首次点击导航时还要请求 chunk（解决"第一次点击反应迟钝"）
-import Home from "./pages/Home";
-import Explore from "./pages/Explore";
-import Post from "./pages/Post";
 import Login from "./pages/Login";
 
-// 低频/受保护页面保持懒加载，继续拆分 bundle
-const Write = React.lazy(() => import("./pages/Write"));
-const Profile = React.lazy(() => import("./pages/Profile"));
-const SearchPage = React.lazy(() => import("./pages/SearchPage"));
-const Notifications = React.lazy(() => import("./pages/Notifications"));
-const Settings = React.lazy(() => import("./pages/Settings"));
+// @cuiruoni+展示页（showcase）就是前端本体；旧博客页面（Home/Explore/Post 等）已移除，
+// 写文章走 showcase 场景 3 编辑器，后台在 /admin。
 const Admin = React.lazy(() => import("./pages/Admin"));
-const StyleTransfer = React.lazy(() => import("./pages/StyleTransfer"));
+const ProfileCenter = React.lazy(() => import("./pages/ProfileCenter"));
+
+// 场景滚动作品集：从 D:\person 迁移而来，整页自成一体的全屏舞台
+const Showcase = React.lazy(() => import("./showcase/Showcase"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -96,20 +92,22 @@ const AnimatedRoutes = () => {
   return (
     <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
-        <Route path="/" element={<Navigate to="/home" replace />} />
-        <Route path="/login" element={<PageTransition><Login /></PageTransition>} />
-        <Route path="/register" element={<PageTransition><Login /></PageTransition>} />
-        <Route path="/home" element={<PageTransition><Home /></PageTransition>} />
-        <Route path="/explore" element={<PageTransition><Explore /></PageTransition>} />
-        <Route path="/post/:id" element={<PageTransition><Post /></PageTransition>} />
-        <Route path="/write" element={<ProtectedRoute><PageTransition><Write /></PageTransition></ProtectedRoute>} />
-        <Route path="/profile" element={<ProtectedRoute><PageTransition><Profile /></PageTransition></ProtectedRoute>} />
-        <Route path="/profile/:username" element={<PageTransition><Profile /></PageTransition>} />
-        <Route path="/search" element={<PageTransition><SearchPage /></PageTransition>} />
-        <Route path="/notifications" element={<ProtectedRoute><PageTransition><Notifications /></PageTransition></ProtectedRoute>} />
-        <Route path="/settings" element={<ProtectedRoute><PageTransition><Settings /></PageTransition></ProtectedRoute>} />
-        <Route path="/admin" element={<ProtectedRoute adminOnly><PageTransition><Admin /></PageTransition></ProtectedRoute>} />
-        <Route path="/style-transfer" element={<PageTransition><StyleTransfer /></PageTransition>} />
+        {/* @cuiruoni+showcase 是门面兼博客本体（/），登录 /login、后台 /admin。
+            showcase 顶栏与入场层里有常驻入口（见 Topbar/IntroOverlay）。 */}
+        <Route path="/" element={<Navigate to="/showcase" replace />} />
+        {/* 登录页已换成 showcase 皮肤，内部 backdrop 是 fixed 布局 ——
+            **不能**包 PageTransition：它的 translateY + blur 会创建 containing block，
+            让 backdrop 整块缩进内容区（与 /showcase 不包它是同一个原因）。 */}
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Login />} />
+        <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
+        {/* 个人管理中心：所有登录用户可用 */}
+        <Route path="/profile" element={<ProtectedRoute><ProfileCenter /></ProtectedRoute>} />
+        {/* showcase：刻意**不包** PageTransition —— 它的 translateY 与 blur() 会创建
+            containing block，让 person 的全屏 fixed 舞台（.video-stage / .topbar /
+            .progress-ui / 弹窗 / 轮播）全部错位。也**不用** MainLayout，因为 person
+            自带背景层与顶栏，套上去会两套背景叠加。详见 showcase/Showcase.tsx 顶部注释。 */}
+        <Route path="/showcase" element={<Showcase />} />
         <Route path="*" element={<PageTransition><NotFound /></PageTransition>} />
       </Routes>
     </AnimatePresence>

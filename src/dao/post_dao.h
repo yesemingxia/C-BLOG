@@ -15,6 +15,9 @@ namespace post_dao {
 json::array list_posts(int page, int page_size, const std::string& status, int& total,
                        int64_t viewer_id = 0, bool is_admin = false);
 
+// @cuiruoni+某作者自己的全部文章（含草稿），个人中心「我的文章」专用
+json::array list_by_author(int64_t author_id, int page, int page_size, int& total);
+
 // @cuiruoni+根据ID查询文章详情
 Post find_by_id(int64_t id);
 

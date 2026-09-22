@@ -6,6 +6,10 @@
 
 #include <jwt-cpp/traits/boost-json/traits.h>
 
+#include <chrono>
+#include <random>
+#include <string>
+
 namespace auth_service {
 
 // @cuiruoni+P2修复：优先读Authorization: Bearer，其次读HttpOnly Cookie中的blog_token
@@ -44,12 +48,23 @@ std::string extract_token_from_request(const http::request<http::string_body>& r
 // @cuiruoni+生成JWT token，包含issuer、subject(user_id)、username、role声明
 // @cuiruoni+使用HS256算法签名，过期时间从配置读取
 std::string generate_token(int64_t user_id, const std::string& username, const std::string& role) {
+    // @cuiruoni+每个token携带唯一jti：JWT只有秒级iat、payload相同时同一秒内重复签发
+    // @cuiruoni+会得到完全相同的token —— 若旧的那份已被登出拉黑，"登出后立即重新登录"
+    // @cuiruoni+拿到的新会话会天生处于黑名单状态。加jti让每次签发独一无二。
+    static std::mt19937_64 gen{std::random_device{}()};
+    static std::uniform_int_distribution<unsigned long long> dist;
+    const std::string jti =
+        std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count()) +
+        "-" + std::to_string(dist(gen));
+
     auto token = jwt::create<jwt::traits::boost_json>()
         .set_issuer("cpp-blog")
         .set_type("JWT")
         .set_subject(std::to_string(user_id))
         .set_payload_claim("username", jwt::traits::boost_json::value_type(username))
         .set_payload_claim("role", jwt::traits::boost_json::value_type(role))
+        .set_id(jti)
         .set_issued_at(std::chrono::system_clock::now())
         .set_expires_at(std::chrono::system_clock::now() +
                         std::chrono::seconds{Config::instance().jwt_expire_seconds()})

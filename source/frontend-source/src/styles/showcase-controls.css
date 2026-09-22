@@ -1,0 +1,104 @@
+/* ==========================================================================
+   Showcase 翻页控件的按下动效
+   --------------------------------------------------------------------------
+   为什么单独一个文件：`showcase.css` 是 `scope-css.cjs` 的**生成产物**
+   （改了会在下次生成时丢失），按它的文件头约定，新增样式另建文件并在组件里 import。
+
+   覆盖三个「翻页入口」：
+     · 顶部导航点          .nav-dot
+     · 移动端 Prev / Next  .mobile-scene-btn
+     · 首页「向下滚动进入」  .primary-btn（#enterBtn）
+
+   基础尺寸/配色都在 showcase.css 里，这里只补交互态（hover / :active），
+   选择器带 .ssp-scope 前缀，特异性与加载顺序都压在生成文件之上。
+   ========================================================================== */
+
+/* ---------------- 顶部导航点 ---------------- */
+.ssp-scope .nav-dot {
+  /* 按下要"跟手"：基础态是 .35s 的长过渡，按下时压到 120ms 才有即时反馈 */
+  transition: width 0.35s var(--ease-cinema), background 0.35s var(--ease-cinema),
+    transform 0.12s ease-out, box-shadow 0.12s ease-out;
+}
+
+.ssp-scope .nav-dot:hover {
+  background: rgba(255, 255, 255, 0.62);
+}
+
+/* 按下：小圆点放大到 1.45 倍并提亮 —— 9px 的点太小，缩放比变色更容易被看见 */
+.ssp-scope .nav-dot:active {
+  transform: scale(1.45);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 0 3px rgba(103, 232, 249, 0.22);
+}
+
+/* 已激活的那个已是 28px 胶囊，再放大 1.45 会顶到旁边的点 —— 只给一点回弹 */
+.ssp-scope .nav-dot.is-active:active {
+  transform: scale(1.06);
+  background: #67e8f9;
+  box-shadow: 0 0 0 3px rgba(103, 232, 249, 0.28);
+}
+
+.ssp-scope .nav-dot:focus-visible {
+  outline: 1px solid rgba(103, 232, 249, 0.8);
+  outline-offset: 3px;
+}
+
+/* ---------------- 移动端 Prev / Next ---------------- */
+/* 尺寸定义在 @media ≤768px 里（showcase.css:1306），这里只加交互态，
+   但为避免基础态没有任何过渡导致按下"跳变"，先补一条全尺寸可用的 transition。 */
+.ssp-scope .mobile-scene-btn {
+  transition: transform 0.12s ease-out, background 0.16s var(--ease-cinema),
+    border-color 0.16s var(--ease-cinema), color 0.16s var(--ease-cinema);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ssp-scope .mobile-scene-btn:active {
+  transform: scale(0.9);
+  background: rgba(103, 232, 249, 0.26);
+  border-color: rgba(103, 232, 249, 0.6);
+  color: #ffffff;
+}
+
+/* ---------------- 首页「向下滚动进入」 ---------------- */
+.ssp-scope .primary-btn {
+  transition: transform 0.12s ease-out, background 0.2s var(--ease-cinema),
+    border-color 0.2s var(--ease-cinema), box-shadow 0.2s var(--ease-cinema);
+}
+
+.ssp-scope .primary-btn:active {
+  /* 轻微下沉：与"按下去"的方向一致，比单纯缩放更像实体按钮 */
+  transform: translateY(1px) scale(0.985);
+}
+
+/* ---------------- 顶栏「文章」入口（同样是翻页入口） ---------------- */
+.ssp-scope .topbar-blog-link {
+  transition: color 0.25s ease, border-color 0.25s ease, background 0.25s ease,
+    transform 0.12s ease-out;
+}
+
+.ssp-scope .topbar-blog-link:active {
+  transform: scale(0.95);
+  color: rgba(255, 255, 255, 0.95);
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* ---------------- 尊重系统的"减少动态效果" ---------------- */
+/* 位移/缩放属于 motion，关掉；颜色反馈保留（它不产生运动感，只提供按下确认）。 */
+@media (prefers-reduced-motion: reduce) {
+  .ssp-scope .nav-dot,
+  .ssp-scope .nav-dot:active,
+  .ssp-scope .nav-dot.is-active:active,
+  .ssp-scope .mobile-scene-btn:active,
+  .ssp-scope .primary-btn:active,
+  .ssp-scope .topbar-blog-link:active {
+    transform: none;
+  }
+
+  .ssp-scope .nav-dot,
+  .ssp-scope .mobile-scene-btn,
+  .ssp-scope .primary-btn,
+  .ssp-scope .topbar-blog-link {
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  }
+}

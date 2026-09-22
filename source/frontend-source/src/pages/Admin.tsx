@@ -2,15 +2,16 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  LayoutDashboard, Users, FileText, MessageSquare,
-  LogOut, Sparkles, Search, Trash2, Shield, ChevronLeft,
+  LayoutDashboard, Users, FileText, MessageSquare, Mail, Film,
+  LogOut, Search, Trash2, Shield, ChevronLeft,
   ChevronRight, TrendingUp, Eye, UserPlus, FileEdit,
-  ArrowUpDown, Menu, X
+  ArrowUpDown, Menu, X, Check
 } from "lucide-react";
 import { toast } from "sonner";
-import GlassBackground from "../components/layout/GlassBackground";
+import "../styles/showcase-stage-pages.css";
+import ShowcaseBackdrop from "../showcase/components/ShowcaseBackdrop";
 import { useAuth } from "../components/auth/AuthProvider";
-import { adminApi, checkBackendHealth, type AdminStats, type AdminUser, type AdminComment } from "../lib/api";
+import { adminApi, videosApi, checkBackendHealth, type AdminStats, type AdminUser, type AdminComment, type AdminContact, type VideoSubmission } from "../lib/api";
 import type { ApiPost } from "../lib/api";
 
 const sidebarItems = [
@@ -18,6 +19,8 @@ const sidebarItems = [
   { key: "users", label: "用户管理", icon: Users },
   { key: "posts", label: "文章管理", icon: FileText },
   { key: "comments", label: "评论管理", icon: MessageSquare },
+  { key: "contacts", label: "留言管理", icon: Mail },
+  { key: "videos", label: "视频投稿", icon: Film },
 ];
 
 const rowVariants = {
@@ -530,6 +533,208 @@ const CommentsTab = ({
   );
 };
 
+const ContactsTab = ({
+  contacts, contactsTotal, contactsPage, contactsSearch,
+  setContactsSearch, setContactsPage, onDeleteContact,
+}: {
+  contacts: AdminContact[];
+  contactsTotal: number;
+  contactsPage: number;
+  contactsSearch: string;
+  setContactsSearch: (v: string) => void;
+  setContactsPage: (p: number) => void;
+  onDeleteContact: (id: number) => void;
+}) => {
+  const contactsTotalPages = Math.ceil(contactsTotal / 10);
+  const filteredContacts = contactsSearch
+    ? contacts.filter((c) => c.message.toLowerCase().includes(contactsSearch.toLowerCase())
+        || c.name.toLowerCase().includes(contactsSearch.toLowerCase()))
+    : contacts;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+        <div className="w-full sm:w-72">
+          <SearchInput value={contactsSearch} onChange={setContactsSearch} placeholder="搜索姓名或留言内容..." />
+        </div>
+        <div className="text-xs text-[var(--muted-foreground)] font-display">
+          共 {contactsTotal} 条留言
+        </div>
+      </div>
+
+      {filteredContacts.length === 0 ? (
+        <div className="rounded-2xl card p-10 text-center text-sm text-[var(--muted-foreground)] font-display">
+          暂无留言 —— 用户在展示页「联系」场景提交的反馈会出现在这里
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredContacts.map((c, i) => (
+            <motion.div
+              key={c.id}
+              custom={i}
+              variants={rowVariants}
+              initial="hidden"
+              animate="visible"
+              className="rounded-2xl card p-4 sm:p-5"
+            >
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div>
+                  <span className="text-sm font-semibold text-[var(--foreground)] font-display">{c.name}</span>
+                  <span className="ml-3 text-xs text-[var(--muted-foreground)] font-mono">{c.email}</span>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-xs text-[var(--muted-foreground)]">{c.created_at}</span>
+                  <button
+                    onClick={() => onDeleteContact(c.id)}
+                    className="p-1.5 rounded-lg transition-all hover:opacity-80 bg-[var(--destructive-subtle)] border border-[var(--destructive)]/20 text-[var(--destructive)]"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+              <p className="text-sm leading-relaxed whitespace-pre-wrap text-[var(--muted-foreground)]">
+                {c.message}
+              </p>
+            </motion.div>
+          ))}
+        </div>
+      )}
+      <Pagination page={contactsPage} totalPages={contactsTotalPages} setPage={setContactsPage} />
+    </div>
+  );
+};
+
+// @cuiruoni+视频投稿审核：缩略预览 + 通过/驳回/删除（approved 进入主页轮换池）
+const VideosTab = ({
+  videos, videosTotal, videosPage, videosFilter,
+  setVideosFilter, setVideosPage, onSetStatus, onSetActive, onDeleteVideo,
+}: {
+  videos: VideoSubmission[];
+  videosTotal: number;
+  videosPage: number;
+  videosFilter: string;
+  setVideosFilter: (v: string) => void;
+  setVideosPage: (p: number) => void;
+  onSetStatus: (id: number, status: "approved" | "rejected") => void;
+  onSetActive: (id: number, active: boolean) => void;
+  onDeleteVideo: (id: number) => void;
+}) => {
+  const videosTotalPages = Math.ceil(videosTotal / 10);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+        <p className="text-xs text-[var(--muted-foreground)] font-display">
+          共 {videosTotal} 条投稿 —— 安全审核后「启用」其中一支作为主页背景（同一时间只有一支生效）
+        </p>
+        <div className="flex items-center gap-2">
+          {(["all", "pending", "approved", "rejected"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => { setVideosFilter(s); setVideosPage(1); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border font-display ${
+                videosFilter === s
+                  ? "bg-[var(--brand-subtle)] text-[var(--foreground)] border-[var(--border-strong)]"
+                  : "bg-[var(--muted)] text-[var(--muted-foreground)] border-[var(--border)] hover:bg-[var(--brand-subtle)]"
+              }`}
+            >
+              {s === "all" ? "全部" : s === "pending" ? "待审核" : s === "approved" ? "已通过" : "已驳回"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {videos.length === 0 ? (
+        <div className="rounded-2xl card p-10 text-center text-sm text-[var(--muted-foreground)] font-display">
+          暂无投稿 —— 用户在个人中心「投稿视频」上传后会出现在这里
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {videos.map((v) => (
+            <motion.div
+                key={v.id}
+                className={`rounded-2xl card p-4 sm:p-5 flex flex-col sm:flex-row gap-4 ${
+                  v.is_active ? "ring-1 ring-[var(--primary)]" : ""
+                }`}
+              >
+              <video
+                src={`/api/videos/file/${v.filename}`}
+                controls
+                preload="metadata"
+                className="w-full sm:w-56 h-32 rounded-xl bg-black/50 object-cover flex-shrink-0"
+              />
+              <div className="flex-1 min-w-0 flex flex-col justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold truncate text-[var(--foreground)] font-display">
+                    {v.original_name || v.filename}
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                    投稿人 {v.uploader_name || "未知"} · {v.created_at}
+                  </p>
+                  <span
+                    className={`inline-flex mt-2 px-2.5 py-1 rounded-lg text-xs font-semibold border ${
+                      v.is_active
+                        ? "bg-[var(--brand-subtle)] text-[var(--primary)] border-[var(--brand-border)]"
+                        : v.status === "approved"
+                          ? "bg-[var(--success-subtle)] text-[var(--success)] border-[var(--success)]/20"
+                          : v.status === "rejected"
+                            ? "bg-[var(--destructive-subtle)] text-[var(--destructive)] border-[var(--destructive)]/20"
+                            : "bg-[var(--muted)] text-[var(--muted-foreground)] border-[var(--border)]"
+                    }`}
+                  >
+                    {v.is_active ? "★ 当前主页背景" : v.status === "approved" ? "已通过，未启用" : v.status === "rejected" ? "已驳回" : "待审核"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {v.status !== "approved" && (
+                    <button
+                      onClick={() => onSetStatus(v.id, "approved")}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:opacity-80 bg-[var(--success-subtle)] border border-[var(--success)]/20 text-[var(--success)]"
+                    >
+                      <Check size={13} /> 通过
+                    </button>
+                  )}
+                  {v.status !== "rejected" && (
+                    <button
+                      onClick={() => onSetStatus(v.id, "rejected")}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:opacity-80 bg-[var(--muted)] border border-[var(--border)] text-[var(--muted-foreground)]"
+                    >
+                      <X size={13} /> 驳回
+                    </button>
+                  )}
+                  {!v.is_active && (
+                    <button
+                      onClick={() => onSetActive(v.id, true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:opacity-80 bg-[var(--brand-subtle)] border border-[var(--brand-border)] text-[var(--primary)]"
+                    >
+                      <Eye size={13} /> 设为主页背景
+                    </button>
+                  )}
+                  {v.is_active && (
+                    <button
+                      onClick={() => onSetActive(v.id, false)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:opacity-80 bg-[var(--muted)] border border-[var(--border)] text-[var(--muted-foreground)]"
+                    >
+                      <X size={13} /> 停用（恢复默认背景）
+                    </button>
+                  )}
+                  <button
+                    onClick={() => onDeleteVideo(v.id)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:opacity-80 bg-[var(--destructive-subtle)] border border-[var(--destructive)]/20 text-[var(--destructive)]"
+                  >
+                    <Trash2 size={13} /> 删除
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+      <Pagination page={videosPage} totalPages={videosTotalPages} setPage={setVideosPage} />
+    </div>
+  );
+};
+
 const SidebarContent = ({
   activeTab, sidebarCollapsed, onTabChange, onToggleCollapse, onLogout, closeMobile,
 }: {
@@ -543,21 +748,20 @@ const SidebarContent = ({
   const navigate = useNavigate();
   return (
   <div className="flex flex-col h-full">
-    <div
-      className="flex items-center gap-2.5 px-4 py-5 cursor-pointer hover:opacity-80 transition-opacity"
-      onClick={() => { closeMobile(); navigate("/home"); }}
-    >
       <div
-        className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-[var(--foreground)] text-[var(--background)]"
+        className="flex items-center gap-2.5 px-4 py-5 cursor-pointer hover:opacity-80 transition-opacity"
+        onClick={() => { closeMobile(); navigate("/"); }}
       >
-        <Sparkles size={18} />
+        {/* @cuiruoni+品牌位换成站点图标（原 Sparkles 占位圆圈在暗色下是空白的） */}
+        <div className="w-9 h-9 rounded-xl overflow-hidden flex-shrink-0 border border-[var(--border)]">
+          <img src="/favicon.png" alt="Admin" className="w-full h-full object-cover" />
+        </div>
+        {!sidebarCollapsed && (
+          <span className="text-lg font-bold tracking-tight text-[var(--foreground)] font-display">
+            Admin
+          </span>
+        )}
       </div>
-      {!sidebarCollapsed && (
-        <span className="text-lg font-bold tracking-tight text-[var(--foreground)] font-display">
-          Admin
-        </span>
-      )}
-    </div>
 
     <div className="flex-1 px-3 mt-2">
       <div className="space-y-1">
@@ -635,6 +839,17 @@ const Admin = () => {
   const [commentsTotal, setCommentsTotal] = useState(0);
   const [commentsPage, setCommentsPage] = useState(1);
   const [commentsSearch, setCommentsSearch] = useState("");
+
+  const [contacts, setContacts] = useState<AdminContact[]>([]);
+  const [contactsTotal, setContactsTotal] = useState(0);
+  const [contactsPage, setContactsPage] = useState(1);
+  const [contactsSearch, setContactsSearch] = useState("");
+
+  // @cuiruoni+视频投稿审核（方案 C 轮换池）
+  const [videoSubs, setVideoSubs] = useState<VideoSubmission[]>([]);
+  const [videoSubsTotal, setVideoSubsTotal] = useState(0);
+  const [videoSubsPage, setVideoSubsPage] = useState(1);
+  const [videosFilter, setVideosFilter] = useState("all");
   const [backendOk, setBackendOk] = useState(true);
 
   // @cuiruoni+P2修复：健康状态改为真实检测，不再硬编码"系统运行正常"
@@ -664,6 +879,18 @@ const Admin = () => {
     setCommentsTotal(res.total);
   }, [commentsPage]);
 
+  const loadContacts = useCallback(async () => {
+    const res = await adminApi.listContacts(contactsPage, 10);
+    setContacts(res.contacts);
+    setContactsTotal(res.total);
+  }, [contactsPage]);
+
+  const loadVideoSubs = useCallback(async () => {
+    const res = await videosApi.adminList(videosFilter, videoSubsPage, 10);
+    setVideoSubs(res.videos);
+    setVideoSubsTotal(res.total);
+  }, [videosFilter, videoSubsPage]);
+
   // @cuiruoni+P1修复：翻页、切换状态筛选或切换Tab时重新请求数据，修复分页不生效的问题
   useEffect(() => {
     if (activeTab === "users") loadUsers();
@@ -676,6 +903,14 @@ const Admin = () => {
   useEffect(() => {
     if (activeTab === "comments") loadComments();
   }, [activeTab, commentsPage, loadComments]);
+
+  useEffect(() => {
+    if (activeTab === "contacts") loadContacts();
+  }, [activeTab, contactsPage, loadContacts]);
+
+  useEffect(() => {
+    if (activeTab === "videos") loadVideoSubs();
+  }, [activeTab, videosFilter, videoSubsPage, loadVideoSubs]);
 
   const handleTabChange = useCallback((tab: string) => {
     setActiveTab(tab);
@@ -728,6 +963,59 @@ const Admin = () => {
     }
   }, []);
 
+  const handleDeleteContact = useCallback(async (id: number) => {
+    if (!window.confirm("确定要删除该留言吗？此操作不可恢复。")) return;
+    try {
+      await adminApi.deleteContact(id);
+      setContacts((prev) => prev.filter((c) => c.id !== id));
+      setContactsTotal((t) => Math.max(0, t - 1));
+      toast.success("留言已删除");
+    } catch {
+      toast.error("删除失败");
+    }
+  }, []);
+
+  // @cuiruoni+视频投稿审核：通过/驳回（驳回自动停用）
+  const handleVideoStatus = useCallback(async (id: number, status: "approved" | "rejected") => {
+    try {
+      await videosApi.setStatus(id, status);
+      setVideoSubs((prev) => prev.map((v) => {
+        if (v.id !== id) return v;
+        return status === "approved" ? { ...v, status } : { ...v, status, is_active: false };
+      }));
+      toast.success(status === "approved" ? "已通过" : "已驳回");
+    } catch {
+      toast.error("操作失败");
+    }
+  }, []);
+
+  // @cuiruoni+启用/停用当前主页背景（全局唯一；启用时自动通过）
+  const handleVideoActive = useCallback(async (id: number, active: boolean) => {
+    try {
+      await videosApi.setActive(id, active);
+      setVideoSubs((prev) => prev.map((v) => {
+        if (v.id === id) return { ...v, is_active: active, status: active ? "approved" : v.status };
+        // 启用某支时其他支自动退出启用态
+        return active ? { ...v, is_active: false } : v;
+      }));
+      toast.success(active ? "已设为主页背景" : "已停用，主页恢复默认背景");
+    } catch {
+      toast.error("操作失败");
+    }
+  }, []);
+
+  const handleDeleteVideoSub = useCallback(async (id: number) => {
+    if (!window.confirm("确定要删除这条投稿吗？视频文件将一并删除。")) return;
+    try {
+      await videosApi.remove(id);
+      setVideoSubs((prev) => prev.filter((v) => v.id !== id));
+      setVideoSubsTotal((t) => Math.max(0, t - 1));
+      toast.success("投稿已删除");
+    } catch {
+      toast.error("删除失败");
+    }
+  }, []);
+
   const handleLogout = useCallback(async () => {
     await logout();
     navigate("/login");
@@ -742,19 +1030,19 @@ const Admin = () => {
   }, []);
 
   return (
-    <div data-cmp="Admin" className="min-h-screen relative bg-background font-display">
-      <GlassBackground />
+    <div data-cmp="Admin" className="min-h-screen relative bg-background font-display dark stage-page">
+      {/* 背景换成 showcase 的舞台（与展示页同一套风格）。
+          dim 0.55：这一屏是表格与数字，背景要压得比登录页更暗才读得清。 */}
+      <ShowcaseBackdrop dim={0.55} source="scene2" />
 
       {/* 移动端顶部栏 */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 h-14 bg-[var(--background)]/85 backdrop-blur-xl border-b border-[var(--border)]">
         <div
           className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity"
-          onClick={() => navigate("/home")}
+          onClick={() => navigate("/")}
         >
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center bg-[var(--foreground)] text-[var(--background)]"
-          >
-            <Sparkles size={15} />
+          <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0 border border-[var(--border)]">
+            <img src="/favicon.png" alt="Admin" className="w-full h-full object-cover" />
           </div>
           <span className="text-sm font-bold text-[var(--foreground)]">Admin</span>
         </div>
@@ -888,6 +1176,30 @@ const Admin = () => {
                   setCommentsSearch={setCommentsSearch}
                   setCommentsPage={setCommentsPage}
                   onDeleteComment={handleDeleteComment}
+                />
+              )}
+              {activeTab === "contacts" && (
+                <ContactsTab
+                  contacts={contacts}
+                  contactsTotal={contactsTotal}
+                  contactsPage={contactsPage}
+                  contactsSearch={contactsSearch}
+                  setContactsSearch={setContactsSearch}
+                  setContactsPage={setContactsPage}
+                  onDeleteContact={handleDeleteContact}
+                />
+              )}
+              {activeTab === "videos" && (
+                <VideosTab
+                  videos={videoSubs}
+                  videosTotal={videoSubsTotal}
+                  videosPage={videoSubsPage}
+                  videosFilter={videosFilter}
+                  setVideosFilter={setVideosFilter}
+                  setVideosPage={setVideoSubsPage}
+                  onSetStatus={handleVideoStatus}
+                  onSetActive={handleVideoActive}
+                  onDeleteVideo={handleDeleteVideoSub}
                 />
               )}
             </motion.div>

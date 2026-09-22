@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" width="640" height="400" role="img" aria-label="Photo Flow">
+  <defs>
+    <linearGradient id="a" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#123A34"/><stop offset="1" stop-color="#06100E"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="400" fill="url(#a)"/>
+  <g opacity=".9">
+    <rect x="120" y="40" width="170" height="130" rx="14" fill="rgba(255,255,255,.10)"/>
+    <rect x="120" y="200" width="170" height="130" rx="14" fill="rgba(103,232,249,.16)"/>
+    <rect x="350" y="120" width="170" height="130" rx="14" fill="rgba(255,255,255,.14)"/>
+    <rect x="350" y="280" width="170" height="130" rx="14" fill="rgba(255,255,255,.07)"/>
+  </g>
+  <g stroke="#67E8F9" stroke-width="2" opacity=".55" stroke-linecap="round">
+    <path d="M205 20v340" stroke-dasharray="6 10"/>
+  </g>
+</svg>

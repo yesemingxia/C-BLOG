@@ -5,6 +5,22 @@
 
 namespace comment_dao {
 
+// @cuiruoni+行 → 评论对象。list_by_post_id 与 get_by_id 共用这一份构造逻辑，
+// @cuiruoni+保证「列表里的元素」与「创建后回传的对象」字段完全一致
+// @cuiruoni+（两个查询的列顺序必须保持：id, post_id, author_name, author_email, content, parent_id, created_at）
+template <typename Row>
+static json::object row_to_comment(const Row& row) {
+    json::object obj;
+    obj["id"] = mysqlx_helper::to_json(row[0]);
+    obj["post_id"] = mysqlx_helper::to_json(row[1]);
+    obj["author_name"] = mysqlx_helper::to_string(row[2]);
+    obj["author_email"] = mysqlx_helper::is_null(row, 3) ? "" : mysqlx_helper::to_string(row[3]);
+    obj["content"] = mysqlx_helper::to_string(row[4]);
+    obj["parent_id"] = mysqlx_helper::is_null(row, 5) ? json::value{} : mysqlx_helper::to_json(row[5]);
+    obj["created_at"] = mysqlx_helper::to_string(row[6]);
+    return obj;
+}
+
 json::array list_by_post_id(int64_t post_id) {
     auto sess = MysqlPool::instance().acquire();
     if (!sess) return json::array{};
@@ -18,15 +34,7 @@ json::array list_by_post_id(int64_t post_id) {
 
         json::array arr;
         for (auto row : result) {
-            json::object obj;
-            obj["id"] = mysqlx_helper::to_json(row[0]);
-            obj["post_id"] = mysqlx_helper::to_json(row[1]);
-            obj["author_name"] = mysqlx_helper::to_string(row[2]);
-            obj["author_email"] = mysqlx_helper::is_null(row, 3) ? "" : mysqlx_helper::to_string(row[3]);
-            obj["content"] = mysqlx_helper::to_string(row[4]);
-            obj["parent_id"] = mysqlx_helper::is_null(row, 5) ? json::value{} : mysqlx_helper::to_json(row[5]);
-            obj["created_at"] = mysqlx_helper::to_string(row[6]);
-            arr.push_back(obj);
+            arr.push_back(row_to_comment(row));
         }
         return arr;
     } catch (const std::exception& e) {
@@ -35,11 +43,33 @@ json::array list_by_post_id(int64_t post_id) {
     }
 }
 
-bool insert_with_parent(int64_t post_id, const std::string& author_name,
-                        const std::string& author_email, const std::string& content,
-                        int64_t parent_id) {
+json::object get_by_id(int64_t comment_id) {
     auto sess = MysqlPool::instance().acquire();
-    if (!sess) return false;
+    if (!sess) return json::object{};
+
+    try {
+        auto result = sess->sql(
+            "SELECT id, post_id, author_name, author_email, content, parent_id, "
+            "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at "
+            "FROM comments WHERE id = ?")
+            .bind(comment_id).execute();
+
+        // @cuiruoni+按主键查询最多一行，拿到即返回（不 break 之外还要处理空结果）
+        for (auto row : result) {
+            return row_to_comment(row);
+        }
+        return json::object{};
+    } catch (const std::exception& e) {
+        spdlog::error("comment_dao::get_by_id error: {}", e.what());
+        return json::object{};
+    }
+}
+
+int64_t insert_with_parent(int64_t post_id, const std::string& author_name,
+                           const std::string& author_email, const std::string& content,
+                           int64_t parent_id) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return 0;
 
     try {
         sess->sql(
@@ -47,17 +77,20 @@ bool insert_with_parent(int64_t post_id, const std::string& author_name,
             "VALUES (?, ?, ?, ?, ?)")
             .bind(post_id).bind(author_name).bind(author_email).bind(content).bind(parent_id)
             .execute();
-        return true;
+
+        // @cuiruoni+与 user_dao/post_dao 同一写法：在同一个session上取自增ID
+        auto result = sess->sql("SELECT LAST_INSERT_ID()").execute();
+        return static_cast<int64_t>(result.fetchOne()[0]);
     } catch (const std::exception& e) {
         spdlog::error("comment_dao::insert_with_parent error: {}", e.what());
-        return false;
+        return 0;
     }
 }
 
-bool insert(int64_t post_id, const std::string& author_name,
-            const std::string& author_email, const std::string& content) {
+int64_t insert(int64_t post_id, const std::string& author_name,
+               const std::string& author_email, const std::string& content) {
     auto sess = MysqlPool::instance().acquire();
-    if (!sess) return false;
+    if (!sess) return 0;
 
     try {
         sess->sql(
@@ -65,10 +98,13 @@ bool insert(int64_t post_id, const std::string& author_name,
             "VALUES (?, ?, ?, ?)")
             .bind(post_id).bind(author_name).bind(author_email).bind(content)
             .execute();
-        return true;
+
+        // @cuiruoni+与 user_dao/post_dao 同一写法：在同一个session上取自增ID
+        auto result = sess->sql("SELECT LAST_INSERT_ID()").execute();
+        return static_cast<int64_t>(result.fetchOne()[0]);
     } catch (const std::exception& e) {
         spdlog::error("comment_dao::insert error: {}", e.what());
-        return false;
+        return 0;
     }
 }
 

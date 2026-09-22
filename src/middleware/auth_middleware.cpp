@@ -74,8 +74,11 @@ MiddlewareFunc create_path_protected_auth_middleware() {
             // @cuiruoni+标签和搜索公开
             if (path.find("/api/tags") == 0) return true;
             if (path.find("/api/search") == 0) return true;
-            // @cuiruoni+风格列表/任务查询/结果图公开；提交任务（POST）需登录，防止匿名消耗付费 API
-            if (path.find("/api/styles") == 0) return true;
+            // @cuiruoni+已上传图片公开读取（文章插图读者未登录也要能看）
+            if (path.find("/api/upload/file/") == 0) return true;
+            // @cuiruoni+当前背景视频与已投稿视频公开读取（用户投稿 + 管理员审核启用）
+            if (path == "/api/videos/active") return true;
+            if (path.find("/api/videos/file/") == 0) return true;
             // @cuiruoni+健康检查公开
             if (path == "/") return true;
         }

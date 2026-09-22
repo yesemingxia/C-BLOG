@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Blog</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="description" content="A clean and simple blog" />
     <meta name="author" content="Blog" />
     <meta property="og:image" content="/og-image.png" />
@@ -15,5 +16,27 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+
+    <!-- 无 JS 兜底（迁移自 person/index.html:214-216）。
+
+         ⚠️ 这条**必须放在 index.html**，不能在 React 组件里写 <noscript> ——
+         整站都是 JS 渲染的，组件在无 JS 时根本不会挂载，写了等于没写。
+
+         样式走内联：showcase.css 是随 Showcase 懒加载的，无 JS 时拿不到。
+         保留 `.noscript-note` 类名与原版对齐。 -->
+    <noscript>
+      <div
+        class="noscript-note"
+        style="
+          padding: 32px 24px;
+          font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+          font-size: 15px;
+          line-height: 1.7;
+          color: #1f2328;
+        "
+      >
+        本站需要 JavaScript 才能正常浏览，请开启后重新加载页面。
+      </div>
+    </noscript>
   </body>
 </html>

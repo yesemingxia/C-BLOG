@@ -10,7 +10,7 @@ const NotFound = () => {
         <div className="text-7xl font-black text-[var(--foreground)] mb-4">404</div>
         <p className="text-lg text-[var(--muted-foreground)] mb-8">页面不存在</p>
         <button
-          onClick={() => navigate("/home")}
+          onClick={() => navigate("/")}
           className="btn-primary inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold"
         >
           <ArrowLeft size={16} />

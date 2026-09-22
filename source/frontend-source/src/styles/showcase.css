@@ -1,0 +1,2611 @@
+/* ==========================================================================
+   Showcase 样式 · 迁移自 D:\person\styles.css
+   --------------------------------------------------------------------------
+   本文件由 .workbuddy/tools/scope-css.cjs 生成 —— **手工修改会在下次重新生成时丢失**。
+   要改样式：
+     · 观感/布局问题     → 改 D:\person\styles.css，再跑一次 node scope-css.cjs
+     · 迁移引入的修正     → 改 scope-css.cjs 里的 HEADER / FOOTER 模板
+     · showcase 独有的新增 → 另建一个 css 文件并在 Showcase.tsx 里 import
+
+   ⚠️ 三条硬约束（动这个文件之前先读完）
+   --------------------------------------------------------------------------
+   1. `.ssp-scope` 根元素上**永远不要**加 transform / filter / perspective /
+      contain / will-change / backdrop-filter。它们会创建 containing block，
+      让内部所有 position:fixed 元素错位 —— 而 showcase 里 fixed 的是整个舞台
+      （.video-stage / .topbar / .progress-ui / .intro-overlay / 弹窗 / 轮播）。
+      这与 C-BLOG 的 PageTransition 是同一个机制，也是 /showcase 不包它的原因。
+
+   2. `--app-height` / `--scene-index` / `--transition-ms` 由 JS 写在
+      documentElement 上，**只能声明在 :root**。CSS 变量靠继承传递，
+      "内联优先级最高"只管声明它的那个元素本身；在 .ssp-scope 内重新声明会截断
+      继承链，导致场景位移 / 视口高度 / 转场时长全部失效。
+
+   3. html / body 相关规则不能包进 .ssp-scope —— 会变成永不匹配的后代选择器。
+      它们走 `body.ssp-active`（Showcase.tsx 挂载时加类、卸载时移除），
+      或 `.ssp-scope[data-*]`。
+   ========================================================================== */
+
+/* ==========================================================================
+   第一层 · 全局（不能进 .ssp-scope）
+   ========================================================================== */
+
+/* 3 个运行时变量：JS 写 documentElement，兜底值放这里。
+   C-BLOG 未占用这三个名字（已核对 index.css 全部 100+ 变量）。 */
+:root {
+  --app-height: 100vh;
+  --scene-index: 0;
+  --transition-ms: 8800ms;
+}
+
+/* 原 styles.css:21-27 的 body 规则，只保留与「全局副作用」相关的部分：
+   清掉默认外边距、禁用滚动、铺暗色底。
+   color / font-family 依赖 --text，而 --text 定义在 .ssp-scope 内、body 拿不到，
+   所以那两条改由 .ssp-scope 承担（见下方第二层）。 */
+body.ssp-active {
+  margin: 0;
+  overflow: hidden;
+  background: #090b0f;
+}
+
+/* 原 styles.css:1178-1196 的移动端 fixed 布局，作用到真实 body 上，
+   靠 ssp-active 类隔离在 showcase 内。
+   原文件里那条 `html { position: fixed }` 有意丢弃 —— body 已经 fixed inset:0，
+   html 再加一层没有额外收益，反而会和 C-BLOG 的全局 html 样式打架。 */
+@media (max-width: 768px) {
+  body.ssp-active {
+    position: fixed;
+    inset: 0;
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+}
+
+/* 原 styles.css:15-20 的 `html, body { width/height/max-width }` 与
+   `html { scroll-behavior: auto }` 有意丢弃：
+   前者由 .ssp-scope / .site-shell 的 100vw + --app-height 承担，
+   后者默认值本来就是 auto。 */
+
+/* @keyframes 由脚本从原文件提取后插在这里（keyframes 名是全局的） */
+
+/* ==========================================================================
+   第二层 · 作用域根
+   ========================================================================== */
+
+/* 原 :root 的 10 个变量拆成两部分：
+   · 这里放 7 个「静态」变量（含唯一撞名的 --muted）
+   · 另 3 个运行时变量留在上面的 :root */
+.ssp-scope {
+  --text: rgba(255, 255, 255, 0.94);
+  --muted: rgba(255, 255, 255, 0.66); /* ← 与 C-BLOG 撞名且语义相反：C-BLOG 拿它当背景色，person 拿它当文字色。作用域内重定义即可，不要去"统一"它 */
+  --faint: rgba(255, 255, 255, 0.18);
+  --panel: rgba(13, 16, 22, 0.36);
+  --panel-strong: rgba(10, 12, 18, 0.54);
+  --stroke: rgba(255, 255, 255, 0.16);
+  --ease-cinema: cubic-bezier(0.7, 0, 0.16, 1);
+
+  /* 原 body 的 color / font-family 落在这里 */
+  color: var(--text);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  box-sizing: border-box;
+}
+
+/* ==========================================================================
+   第三层 · 迁移主体（以下由 scope-css.cjs 从 styles.css 生成）
+   ========================================================================== */
+
+/* ---- 从原文件提取的 @keyframes / @font-face ---- */
+@keyframes breathe {
+  0%,100% { transform: scaleX(.55); opacity: .3; }
+  50% { transform: scaleX(1); opacity: .9; }
+}
+
+@keyframes bg-drift {
+  0%   { transform: translate3d(-2%, -1%, 0) scale(1.02); }
+  100% { transform: translate3d(2%, 2%, 0) scale(1.08); }
+}
+
+.ssp-scope * { box-sizing: border-box; }
+
+.ssp-scope button {
+  font: inherit;
+}
+
+.ssp-scope .intro-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #06070a;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 860ms ease, visibility 0s linear 0s;
+}
+
+.ssp-scope .intro-overlay.is-leaving {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 860ms ease, visibility 0s linear 860ms;
+}
+
+.ssp-scope .intro-bg-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(18px) saturate(1.08) brightness(.72);
+  transform: scale(1.08);
+}
+
+.ssp-scope .intro-atmosphere {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 58%, rgba(255,255,255,.08), transparent 24%),
+    radial-gradient(circle at 50% 48%, transparent 34%, rgba(0,0,0,.24) 72%, rgba(0,0,0,.74) 100%),
+    linear-gradient(180deg, rgba(0,0,0,.28), rgba(0,0,0,.12) 42%, rgba(0,0,0,.62));
+}
+
+.ssp-scope .intro-enter-btn {
+  position: relative;
+  width: 178px;
+  height: 66px;
+  margin-top: 30vh;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 24px;
+  color: rgba(255,255,255,.92);
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 22px;
+  background:
+    linear-gradient(135deg, rgba(45,112,78,.54), rgba(13,47,36,.46) 48%, rgba(255,255,255,.055)),
+    rgba(9,28,24,.42);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.18),
+    inset 0 -18px 34px rgba(0,0,0,.06),
+    0 24px 80px rgba(0,0,0,.24);
+  backdrop-filter: blur(24px) saturate(1.18);
+  cursor: pointer;
+  transition: transform 260ms ease, border-color 260ms ease, box-shadow 260ms ease, background 260ms ease;
+}
+
+.ssp-scope .intro-enter-btn::before {
+  content: none;
+}
+
+.ssp-scope .intro-enter-btn:hover {
+  transform: scale(1.045);
+  border-color: rgba(255,255,255,.24);
+  background:
+    linear-gradient(135deg, rgba(54,128,90,.62), rgba(15,55,42,.52) 48%, rgba(255,255,255,.075)),
+    rgba(10,34,28,.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.22),
+    inset 0 -18px 34px rgba(0,0,0,.05),
+    0 0 26px rgba(102,210,148,.13),
+    0 26px 82px rgba(0,0,0,.28);
+}
+
+.ssp-scope .intro-enter-btn:active {
+  transform: scale(.98);
+}
+
+.ssp-scope .intro-enter-cn,
+.ssp-scope .intro-enter-en {
+  position: relative;
+  z-index: 1;
+  display: block;
+  line-height: 1;
+  letter-spacing: 0;
+  text-align: center;
+  text-shadow: 0 1px 18px rgba(0,0,0,.32);
+}
+
+.ssp-scope .intro-enter-cn {
+  font-size: 18px;
+  font-weight: 520;
+}
+
+.ssp-scope .intro-enter-en {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ssp-scope .site-shell {
+  position: relative;
+  width: 100vw;
+  height: var(--app-height);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.ssp-scope .video-stage,
+.ssp-scope .bg-video,
+.ssp-scope .cinema-vignette,
+.ssp-scope .grain {
+  position: fixed;
+  inset: 0;
+}
+
+.ssp-scope .video-stage {
+  z-index: -3;
+  overflow: hidden;
+  background: #06070a;
+}
+
+.ssp-scope .bg-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 0;
+  transform: scale(1.018);
+  transition: opacity 680ms ease, transform 1600ms ease, visibility 0s linear 680ms;
+  will-change: opacity, transform;
+}
+
+.ssp-scope .bg-video.is-visible {
+  opacity: 1;
+  visibility: visible;
+  z-index: 10;
+  transform: scale(1);
+  transition: opacity 680ms ease, transform 1600ms ease, visibility 0s linear 0s;
+}
+
+.ssp-scope #transitionVideo {
+  z-index: 20;
+}
+
+.ssp-scope #transitionVideo.is-visible {
+  z-index: 20;
+}
+
+.ssp-scope #scene3LoopVideo.is-visible {
+  z-index: 11;
+}
+
+.ssp-scope .cinema-vignette {
+  z-index: 2;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 48%, transparent 34%, rgba(0,0,0,.22) 72%, rgba(0,0,0,.72) 100%),
+    linear-gradient(90deg, rgba(0,0,0,.68), transparent 24%, transparent 72%, rgba(0,0,0,.56)),
+    linear-gradient(180deg, rgba(0,0,0,.42), transparent 30%, transparent 68%, rgba(0,0,0,.58));
+}
+
+.ssp-scope .grain {
+  z-index: 3;
+  pointer-events: none;
+  opacity: .12;
+  mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 240 240' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)' opacity='.75'/%3E%3C/svg%3E");
+}
+
+.ssp-scope .topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: clamp(20px, 3vw, 42px) clamp(22px, 5vw, 72px);
+  pointer-events: none;
+}
+
+.ssp-scope .brand,
+.ssp-scope .topbar nav {
+  pointer-events: auto;
+}
+
+.ssp-scope .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 12px;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+}
+
+.ssp-scope .brand-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--text);
+  box-shadow: 0 0 24px rgba(255,255,255,.8);
+}
+
+.ssp-scope .topbar nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  background: rgba(0,0,0,.18);
+  backdrop-filter: blur(18px);
+}
+
+.ssp-scope .nav-dot {
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255,255,255,.38);
+  cursor: pointer;
+  transition: width .35s ease, background .35s ease;
+}
+
+.ssp-scope .nav-dot.is-active {
+  width: 28px;
+  background: rgba(255,255,255,.92);
+}
+
+.ssp-scope .mobile-scene-controls {
+  display: none;
+}
+
+/* 位移由 script.js 写 --scene-index 驱动（不靠 body[data-phase]，
+   因为 transition-3-2 这类回退相位在 CSS 里覆盖不全） */
+.ssp-scope .content-track {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  width: 400vw;
+  height: var(--app-height);
+  transform: translate3d(calc(var(--scene-index, 0) * -100vw), 0, 0);
+  transition: transform var(--transition-ms) var(--ease-cinema);
+  will-change: transform;
+}
+
+.ssp-scope .content-track.no-anim {
+  transition: none;
+}
+
+.ssp-scope .page {
+  position: relative;
+  flex: 0 0 100vw;
+  width: 100vw;
+  height: var(--app-height);
+  padding: clamp(96px, 12vh, 150px) clamp(22px, 5vw, 72px) clamp(32px, 7vh, 72px);
+}
+
+.ssp-scope .page-home {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
+  align-items: end;
+  gap: clamp(28px, 5vw, 72px);
+}
+
+.ssp-scope .hero-copy {
+  max-width: 560px;
+  padding-bottom: clamp(18px, 6vh, 64px);
+}
+
+.ssp-scope .eyebrow,
+.ssp-scope .small-label {
+  margin: 0 0 16px;
+  color: rgba(255,255,255,.72);
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+}
+
+.ssp-scope h1, .ssp-scope h2, .ssp-scope h3, .ssp-scope p { margin-top: 0; }
+.ssp-scope h1 {
+  max-width: 560px;
+  margin-bottom: 22px;
+  font-size: clamp(30px, 4.5vw, 56px);
+  line-height: .96;
+  letter-spacing: -.075em;
+  font-weight: 540;
+}
+
+.ssp-scope .home-title-line {
+  display: block;
+}
+
+.ssp-scope #home-title {
+  position: relative;
+  top: calc(clamp(-160px, -21vh, -120px) + 42mm);
+  margin-bottom: -4px;
+}
+
+.ssp-scope .home-title-line-offset {
+  margin-left: 0;
+  margin-top: 16px;
+}
+
+.ssp-scope h2 {
+  margin-bottom: 16px;
+  font-size: 28px;
+  letter-spacing: -.04em;
+  font-weight: 520;
+}
+
+.ssp-scope h3 {
+  margin-bottom: 12px;
+  font-size: 20px;
+  letter-spacing: -.03em;
+  font-weight: 520;
+}
+
+.ssp-scope .lead {
+  max-width: 620px;
+  color: var(--muted);
+  font-size: clamp(16px, 1.5vw, 20px);
+  line-height: 1.75;
+}
+
+.ssp-scope .hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 34px;
+}
+
+.ssp-scope .primary-btn {
+  min-width: 172px;
+  height: 48px;
+  padding: 0 22px;
+  color: #101318;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255,255,255,.9);
+  cursor: pointer;
+  box-shadow: 0 18px 48px rgba(0,0,0,.22);
+  transition: transform .28s ease, background .28s ease;
+}
+
+.ssp-scope .primary-btn:hover { transform: translateY(-2px); background: #fff; }
+
+.ssp-scope .hint {
+  position: relative;
+  color: rgba(255,255,255,.62);
+  font-size: 12px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+}
+
+.ssp-scope .hint::after {
+  content: "";
+  display: inline-block;
+  width: 42px;
+  height: 1px;
+  margin-left: 13px;
+  vertical-align: middle;
+  background: rgba(255,255,255,.42);
+  animation: breathe 1.8s ease-in-out infinite;
+}
+
+.ssp-scope .glass-panel {
+  border: 1px solid var(--stroke);
+  background: linear-gradient(135deg, var(--panel), rgba(255,255,255,.06));
+  box-shadow: 0 24px 80px rgba(0,0,0,.22);
+  backdrop-filter: blur(24px) saturate(1.18);
+}
+
+.ssp-scope .profile-card {
+  align-self: end;
+  justify-self: end;
+  width: min(100%, 360px);
+  margin-bottom: clamp(16px, 5vh, 60px);
+  padding: 28px;
+  border-radius: 30px;
+  transform: translateX(20px);
+}
+
+.ssp-scope .profile-card p,
+.ssp-scope .tile p {
+  color: rgba(255,255,255,.67);
+  line-height: 1.38;
+}
+
+.ssp-scope .profile-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  margin: 24px 0 0;
+}
+
+.ssp-scope .profile-card dt {
+  color: rgba(255,255,255,.46);
+  font-size: 11px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.ssp-scope .profile-card dd {
+  margin: 7px 0 0;
+  color: rgba(255,255,255,.86);
+  font-size: 14px;
+}
+
+.ssp-scope .page-work {
+  display: block;
+}
+
+.ssp-scope .work-layout {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6vw;
+}
+
+/* ========== Section Header (左侧 1/3) ========== */
+.ssp-scope .section-header {
+  width: 30%;
+  max-width: 360px;
+  z-index: 21;
+}
+
+.ssp-scope .section-header .eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+
+.ssp-scope .section-header h2 {
+  font-size: clamp(36px, 5vw, 58px);
+  font-weight: 600;
+  line-height: 1.1;
+  margin: 0 0 16px 0;
+  color: var(--text);
+}
+
+.ssp-scope .section-header .section-subtitle {
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin: 0;
+}
+
+/* ========== Project Cards Grid (右侧 2/3) ========== */
+.ssp-scope .project-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(260px, 330px));
+  gap: 26px;
+  z-index: 20;
+}
+
+.ssp-scope .project-card {
+  position: relative;
+  width: 100%;
+  min-height: 286px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 22px;
+  overflow: hidden;
+  cursor: pointer;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.1), rgba(255,255,255,.03) 38%, rgba(7,12,18,.54)),
+    rgba(8, 12, 18, .52);
+  border: 1px solid rgba(255,255,255,.14);
+  box-shadow: 0 20px 60px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.12);
+  backdrop-filter: blur(18px) saturate(1.18);
+  transition: transform 300ms ease, box-shadow 300ms ease, border-color 300ms ease, background 300ms ease;
+  will-change: transform;
+}
+
+.ssp-scope .project-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgba(255,255,255,.18), transparent 32%, rgba(98,238,221,.08));
+  opacity: .42;
+}
+
+.ssp-scope .project-card:hover {
+  transform: translateY(-6px);
+  border-color: rgba(255,255,255,.28);
+  box-shadow:
+    0 28px 78px rgba(0,0,0,.46),
+    0 0 0 1px rgba(255,255,255,.08),
+    0 0 36px rgba(92,231,214,.08);
+}
+
+.ssp-scope .project-image-wrap {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  margin: 12px 12px 0;
+  border-radius: 17px;
+  overflow: hidden;
+  background: rgba(255,255,255,.06);
+}
+
+.ssp-scope .project-image-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.22));
+}
+
+.ssp-scope .project-card-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scale(1);
+  transition: transform 360ms ease, filter 360ms ease;
+}
+
+.ssp-scope .project-card:hover .project-card-image {
+  transform: scale(1.04);
+  filter: saturate(1.08) brightness(1.04);
+}
+
+.ssp-scope .project-card-info {
+  position: relative;
+  z-index: 3;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 20px 20px;
+}
+
+.ssp-scope .project-card-title {
+  font-size: clamp(19px, 1.55vw, 23px);
+  font-weight: 600;
+  line-height: 1.18;
+  margin: 0 0 9px;
+  color: var(--text);
+}
+
+.ssp-scope .project-card-description {
+  font-size: 14px;
+  line-height: 1.52;
+  color: rgba(255,255,255,.66);
+  margin: 0 0 16px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ssp-scope .project-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.ssp-scope .project-tags span {
+  padding: 6px 9px;
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 999px;
+  color: rgba(255,255,255,.7);
+  background: rgba(255,255,255,.065);
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* ========== Project Modal ========== */
+.ssp-scope .project-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: clamp(18px, 4vw, 46px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 280ms ease;
+}
+
+.ssp-scope .project-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 52% 36%, rgba(70,210,196,.12), transparent 34%),
+    rgba(0,0,0,.68);
+  backdrop-filter: blur(16px) saturate(1.1);
+}
+
+.ssp-scope .project-modal-card {
+  position: relative;
+  width: min(74vw, 1120px);
+  height: min(78vh, 720px);
+  max-height: 78vh;
+  overflow: hidden;
+  overflow-x: hidden;
+  display: grid;
+  grid-template-columns: minmax(280px, .86fr) minmax(360px, 1.14fr);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.12), rgba(255,255,255,.04) 42%, rgba(8,14,18,.68)),
+    rgba(8,14,18,.62);
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 30px;
+  box-shadow: 0 44px 140px rgba(0,0,0,.64), inset 0 1px 0 rgba(255,255,255,.16);
+  backdrop-filter: blur(26px) saturate(1.18);
+  opacity: 0;
+  transform: scale(.96) translateY(10px);
+  transition: opacity 300ms ease, transform 300ms var(--ease-cinema), border-color 260ms ease;
+  will-change: transform, opacity;
+}
+
+.ssp-scope .project-modal-overlay.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ssp-scope .project-modal-overlay.is-open .project-modal-card {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+}
+
+.ssp-scope .project-modal-overlay.is-closing {
+  opacity: 0;
+}
+
+.ssp-scope .project-modal-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 10;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  background: rgba(0,0,0,.6);
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 50%;
+  color: rgba(255,255,255,.92);
+  cursor: pointer;
+  transition: background 200ms ease, border-color 200ms ease, transform 200ms ease;
+  backdrop-filter: blur(12px);
+}
+
+.ssp-scope .project-modal-close:hover {
+  background: rgba(0,0,0,.8);
+  border-color: rgba(255,255,255,.32);
+  transform: scale(1.1);
+}
+
+.ssp-scope .project-modal-close svg {
+  width: 20px;
+  height: 20px;
+}
+
+.ssp-scope .project-modal-media {
+  position: relative;
+  min-height: 0;
+  height: 100%;
+  background:
+    radial-gradient(circle at 28% 20%, rgba(117,220,255,.18), transparent 26%),
+    linear-gradient(160deg, rgba(33,68,126,.34), rgba(12,17,24,.58));
+  overflow: hidden;
+}
+
+.ssp-scope .project-modal-media::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent 54%, rgba(0,0,0,.3));
+}
+
+.ssp-scope .project-modal-media img,
+.ssp-scope .project-modal-media video {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: cover;
+  display: block;
+}
+
+.ssp-scope .project-modal-content {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(24px, 3vw, 34px) clamp(26px, 3.2vw, 40px) clamp(22px, 2.6vw, 32px);
+}
+
+.ssp-scope .project-modal-kicker {
+  margin: 0 0 8px;
+  color: rgba(255,255,255,.62);
+  font-size: 11px;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+}
+
+.ssp-scope .project-modal-title {
+  max-width: calc(100% - 58px);
+  font-size: clamp(28px, 2.8vw, 40px);
+  font-weight: 600;
+  line-height: 1.02;
+  margin: 0 0 9px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.ssp-scope .project-modal-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 0 0 14px;
+  color: rgba(255,255,255,.76);
+  font-size: clamp(14px, 1.15vw, 17px);
+  line-height: 1.42;
+}
+
+.ssp-scope .project-modal-grid {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(118px, 1fr));
+  gap: 10px;
+  min-height: 0;
+}
+
+.ssp-scope .project-detail-section {
+  min-height: 118px;
+  padding: 12px 13px 13px;
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 16px;
+  background: rgba(255,255,255,.055);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+}
+
+.ssp-scope .project-detail-section h4 {
+  margin: 0 0 8px;
+  color: rgba(255,255,255,.84);
+  font-size: 10.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.ssp-scope .project-detail-section p,
+.ssp-scope .project-detail-section li {
+  color: rgba(255,255,255,.68);
+  font-size: 12.5px;
+  line-height: 1.38;
+}
+
+.ssp-scope .project-detail-section p,
+.ssp-scope .project-detail-section ul {
+  margin: 0;
+}
+
+.ssp-scope .project-detail-section p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.ssp-scope .project-detail-section ul {
+  padding-left: 15px;
+}
+
+.ssp-scope .project-detail-section li {
+  margin-bottom: 2px;
+}
+
+.ssp-scope .project-tech-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ssp-scope .project-tech-list span {
+  padding: 5px 8px;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 999px;
+  color: rgba(255,255,255,.72);
+  background: rgba(255,255,255,.07);
+  font-size: 10.5px;
+}
+
+.ssp-scope .project-modal-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+.ssp-scope .project-status {
+  color: rgba(156,255,235,.84);
+  font-size: 12px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.ssp-scope .project-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.ssp-scope .project-modal-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,.96);
+  background: linear-gradient(135deg, rgba(45,112,78,.64), rgba(13,47,36,.56));
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 12px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 200ms ease, background 200ms ease, box-shadow 200ms ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,.3);
+}
+
+.ssp-scope .project-modal-cta-secondary {
+  background: rgba(255,255,255,.08);
+}
+
+.ssp-scope .project-modal-cta:hover {
+  transform: translateY(-2px);
+  background: linear-gradient(135deg, rgba(54,128,90,.72), rgba(15,55,42,.64));
+  box-shadow: 0 8px 24px rgba(45,112,78,.4);
+}
+
+.ssp-scope .project-modal-cta.is-disabled,
+.ssp-scope .project-modal-cta.is-disabled:hover {
+  opacity: .42;
+  cursor: not-allowed;
+  transform: none;
+  background: rgba(255,255,255,.06);
+  box-shadow: none;
+  pointer-events: auto;
+}
+
+/* ============================================
+   Scene 4: Contact Page
+   ============================================ */
+
+.ssp-scope .page-contact {
+  position: relative;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.ssp-scope .contact-scene-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(110deg, rgba(3,7,12,.92), rgba(6,24,28,.7) 46%, rgba(4,8,13,.9)),
+    radial-gradient(circle at 72% 28%, rgba(96,238,217,.18), transparent 34%),
+    radial-gradient(circle at 24% 76%, rgba(255,255,255,.08), transparent 32%);
+  opacity: .94;
+}
+
+.ssp-scope .contact-layout {
+  position: relative;
+  z-index: 6;
+  display: grid;
+  grid-template-columns: minmax(320px, .92fr) minmax(360px, 1fr);
+  gap: clamp(28px, 4.2vw, 72px);
+  width: min(88vw, 1280px);
+  margin: 0 auto;
+  align-items: center;
+}
+
+.ssp-scope .contact-intro h1 {
+  margin: 14px 0 18px;
+  font-size: clamp(42px, 5.8vw, 86px);
+  line-height: .98;
+  letter-spacing: 0;
+}
+
+.ssp-scope .contact-title-line {
+  display: block;
+}
+
+.ssp-scope .contact-lead {
+  max-width: 560px;
+  margin: 0 0 clamp(24px, 4vh, 42px);
+  color: rgba(255,255,255,.72);
+  font-size: clamp(16px, 1.4vw, 20px);
+  line-height: 1.72;
+}
+
+.ssp-scope .contact-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.ssp-scope .contact-info-card,
+.ssp-scope .social-panel,
+.ssp-scope .feedback-panel {
+  position: relative;
+  overflow: hidden;
+  border-radius: 28px;
+}
+
+.ssp-scope .contact-info-card {
+  min-height: 136px;
+  padding: 22px 24px;
+  transition: transform 280ms ease, border-color 280ms ease, box-shadow 280ms ease;
+}
+
+.ssp-scope .contact-info-card-email {
+  grid-column: 1 / -1;
+}
+
+.ssp-scope .contact-info-card::before,
+.ssp-scope .social-panel::before,
+.ssp-scope .feedback-panel::before,
+.ssp-scope .social-chip::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgba(255,255,255,.2), transparent 34%, rgba(92,231,214,.1));
+  opacity: .55;
+}
+
+.ssp-scope .contact-info-card:hover,
+.ssp-scope .social-panel:hover,
+.ssp-scope .feedback-panel:hover {
+  transform: translateY(-4px);
+  border-color: rgba(255,255,255,.34);
+  box-shadow: 0 26px 80px rgba(55,231,214,.12), 0 18px 56px rgba(0,0,0,.3);
+}
+
+.ssp-scope .contact-info-card strong {
+  position: relative;
+  display: block;
+  margin: 12px 0 8px;
+  font-size: clamp(22px, 2vw, 30px);
+  font-weight: 600;
+}
+
+.ssp-scope .contact-info-card-email strong {
+  font-size: clamp(26px, 2.4vw, 34px);
+  white-space: nowrap;
+}
+
+.ssp-scope .contact-info-card p {
+  position: relative;
+  margin: 0;
+  color: rgba(255,255,255,.62);
+  line-height: 1.48;
+}
+
+.ssp-scope .contact-side {
+  display: grid;
+  gap: 20px;
+}
+
+.ssp-scope .social-panel,
+.ssp-scope .feedback-panel {
+  padding: clamp(22px, 2.4vw, 32px);
+}
+
+.ssp-scope .panel-heading {
+  position: relative;
+  margin-bottom: 20px;
+}
+
+.ssp-scope .panel-heading h2 {
+  margin: 6px 0 0;
+  font-size: clamp(24px, 2vw, 34px);
+  line-height: 1.15;
+}
+
+.ssp-scope .social-link-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ssp-scope .social-chip {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 999px;
+  color: rgba(255,255,255,.86);
+  text-decoration: none;
+  background: rgba(255,255,255,.06);
+  overflow: hidden;
+  transition: transform 260ms ease, border-color 260ms ease, box-shadow 260ms ease, background 260ms ease;
+}
+
+.ssp-scope .social-chip:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255,255,255,.42);
+  background: rgba(255,255,255,.12);
+  box-shadow: 0 0 28px rgba(98,238,221,.16);
+}
+
+.ssp-scope .feedback-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.ssp-scope .feedback-panel label {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  color: rgba(255,255,255,.68);
+}
+
+.ssp-scope .feedback-panel input,
+.ssp-scope .feedback-panel textarea {
+  width: 100%;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 18px;
+  padding: 14px 16px;
+  color: rgba(255,255,255,.92);
+  background: rgba(255,255,255,.07);
+  outline: none;
+  resize: vertical;
+  transition: border-color 220ms ease, box-shadow 220ms ease, background 220ms ease;
+}
+
+.ssp-scope .feedback-panel input:focus,
+.ssp-scope .feedback-panel textarea:focus {
+  border-color: rgba(126,244,229,.55);
+  background: rgba(255,255,255,.1);
+  box-shadow: 0 0 0 4px rgba(126,244,229,.08);
+}
+
+.ssp-scope .feedback-submit {
+  justify-self: start;
+  min-width: 158px;
+  border: 1px solid rgba(255,255,255,.24);
+  border-radius: 999px;
+  padding: 13px 24px;
+  color: rgba(255,255,255,.94);
+  background: rgba(255,255,255,.1);
+  box-shadow: 0 18px 48px rgba(0,0,0,.24);
+  transition: transform 240ms ease, border-color 240ms ease, box-shadow 240ms ease, background 240ms ease;
+}
+
+.ssp-scope .feedback-submit:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255,255,255,.46);
+  background: rgba(255,255,255,.16);
+  box-shadow: 0 0 34px rgba(98,238,221,.16), 0 18px 48px rgba(0,0,0,.26);
+}
+
+.ssp-scope .feedback-submit:disabled {
+  cursor: wait;
+  opacity: .68;
+  transform: none;
+  box-shadow: 0 14px 36px rgba(0,0,0,.2);
+}
+
+.ssp-scope .feedback-toast {
+  min-height: 22px;
+  margin: 0;
+  color: rgba(159,255,236,.86);
+}
+
+.ssp-scope .contact-reveal {
+  opacity: 0;
+  transform: translateY(30px);
+}
+
+@media (max-width: 1024px) {
+  .ssp-scope .contact-layout {
+    grid-template-columns: 1fr;
+    align-content: start;
+    gap: 22px;
+    max-height: calc(100vh - 124px);
+    overflow-y: auto;
+    padding: 10px 4px 24px;
+  }
+
+  .ssp-scope .contact-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .ssp-scope .site-shell {
+    width: 100%;
+    height: var(--app-height);
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  .ssp-scope .site-shell {
+    position: fixed;
+    inset: 0;
+    touch-action: none;
+  }
+
+  .ssp-scope button,
+  .ssp-scope a,
+  .ssp-scope input,
+  .ssp-scope textarea,
+  .ssp-scope select,
+  .ssp-scope label,
+  .ssp-scope .project-card,
+  .ssp-scope .nav-dot,
+  .ssp-scope .audio-control-panel,
+  .ssp-scope .mobile-scene-controls,
+  .ssp-scope .project-modal-card {
+    touch-action: manipulation;
+  }
+
+  .ssp-scope .video-stage,
+  .ssp-scope .bg-video {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: var(--app-height);
+  }
+
+  .ssp-scope .bg-video {
+    object-fit: cover;
+    object-position: center center;
+  }
+
+  .ssp-scope .content-track {
+    height: var(--app-height);
+    overscroll-behavior: none;
+    touch-action: none;
+  }
+
+  .ssp-scope .page {
+    height: var(--app-height);
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  .ssp-scope .mobile-scene-controls {
+    position: fixed;
+    right: 14px;
+    bottom: calc(20px + env(safe-area-inset-bottom));
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px;
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 999px;
+    background: rgba(6,12,14,.34);
+    backdrop-filter: blur(18px) saturate(1.12);
+    box-shadow: 0 14px 42px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.12);
+  }
+
+  .ssp-scope .mobile-scene-btn {
+    min-width: 48px;
+    height: 34px;
+    padding: 0 12px;
+    border: 1px solid rgba(255,255,255,.16);
+    border-radius: 999px;
+    color: rgba(255,255,255,.86);
+    background: rgba(255,255,255,.08);
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+
+  .ssp-scope .page-contact {
+    display: block;
+    align-items: flex-start;
+    padding: 92px 18px 92px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .ssp-scope .contact-layout {
+    display: grid;
+    width: min(100%, 520px);
+    max-height: none;
+    overflow: visible;
+    gap: 18px;
+    padding: 0 0 24px;
+  }
+
+  .ssp-scope .contact-intro h1 {
+    margin: 8px 0 12px;
+    font-size: clamp(42px, 13vw, 62px);
+    line-height: .96;
+  }
+
+  .ssp-scope .contact-lead {
+    margin-bottom: 20px;
+    font-size: 15px;
+    line-height: 1.62;
+  }
+
+  .ssp-scope .contact-card-grid,
+  .ssp-scope .social-link-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .ssp-scope .contact-info-card {
+    min-height: 112px;
+    padding: 20px 22px;
+    border-radius: 24px;
+  }
+
+  .ssp-scope .contact-info-card-email {
+    grid-column: auto;
+  }
+
+  .ssp-scope .contact-info-card strong,
+  .ssp-scope .contact-info-card-email strong {
+    font-size: clamp(23px, 7vw, 29px);
+  }
+
+  .ssp-scope .contact-info-card-email strong {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .ssp-scope .feedback-panel {
+    padding: 22px;
+    border-radius: 24px;
+  }
+
+  .ssp-scope .feedback-submit {
+    width: 100%;
+  }
+}
+
+.ssp-scope .progress-ui {
+  position: fixed;
+  left: clamp(22px, 5vw, 72px);
+  right: clamp(22px, 5vw, 72px);
+  bottom: clamp(20px, 4vh, 44px);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  color: rgba(255,255,255,.66);
+  font-size: 11px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.ssp-scope .progress-line {
+  position: relative;
+  flex: 1;
+  height: 1px;
+  overflow: hidden;
+  background: rgba(255,255,255,.18);
+}
+
+.ssp-scope .progress-line i {
+  display: block;
+  width: 0%;
+  height: 100%;
+  background: rgba(255,255,255,.86);
+  transform-origin: left center;
+  transition: width 120ms linear;
+}
+
+@media (max-width: 920px) {
+  .ssp-scope .page-home {
+    grid-template-columns: 1fr;
+    align-items: end;
+  }
+  .ssp-scope .profile-card {
+    max-width: 460px;
+    margin-bottom: 0;
+    justify-self: start;
+    transform: none;
+  }
+  .ssp-scope .section-copy,
+  .ssp-scope .content-grid {
+    right: auto;
+    left: 50%;
+    width: min(88vw, 760px);
+    transform: translateX(-50%);
+  }
+  .ssp-scope .content-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 28px;
+  }
+  .ssp-scope .tile,
+  .ssp-scope .tile-large {
+    height: 150px;
+    min-height: 150px;
+  }
+}
+
+@media (max-width: 768px) {
+  .ssp-scope #home-title {
+    top: clamp(-44px, -6vh, -32px);
+  }
+
+  .ssp-scope .page-work {
+    overflow: hidden;
+  }
+
+  .ssp-scope .work-layout {
+    position: absolute;
+    inset: 0;
+    height: 100%;
+    display: grid;
+    grid-template-columns: minmax(78px, 24vw) minmax(0, 1fr);
+    align-items: center;
+    gap: 14px;
+    padding: 92px 16px 82px;
+  }
+
+  .ssp-scope .section-header {
+    width: auto;
+    max-width: 96px;
+    align-self: center;
+  }
+
+  .ssp-scope .section-header .eyebrow {
+    margin-bottom: 12px;
+    font-size: 10px;
+  }
+
+  .ssp-scope .section-header h2 {
+    font-size: clamp(34px, 10vw, 48px);
+    line-height: 1.04;
+    margin-bottom: 14px;
+  }
+
+  .ssp-scope .section-header .section-subtitle {
+    font-size: 16px;
+    line-height: 1.55;
+  }
+
+  .ssp-scope .project-cards-grid {
+    width: 100%;
+    max-height: calc(100dvh - 174px);
+    grid-template-columns: 1fr;
+    gap: 14px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0 0 8px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .ssp-scope .project-card {
+    width: 100%;
+    min-height: 0;
+    border-radius: 18px;
+  }
+
+  .ssp-scope .project-image-wrap {
+    margin: 10px 10px 0;
+    border-radius: 14px;
+    aspect-ratio: 16 / 9;
+  }
+
+  .ssp-scope .project-card-info {
+    padding: 14px 15px 16px;
+  }
+
+  .ssp-scope .project-card-title {
+    font-size: 16px;
+  }
+
+  .ssp-scope .project-card-description {
+    font-size: 12px;
+    line-height: 1.42;
+    margin-bottom: 12px;
+    -webkit-line-clamp: 2;
+  }
+
+  .ssp-scope .project-tags {
+    gap: 6px;
+  }
+
+  .ssp-scope .project-tags span {
+    padding: 5px 7px;
+    font-size: 10px;
+  }
+
+  .ssp-scope .project-modal-overlay {
+    padding: 14px;
+    align-items: center;
+  }
+
+  .ssp-scope .project-modal-card {
+    width: calc(100vw - 28px);
+    height: auto;
+    max-height: calc(100dvh - 88px);
+    overflow-y: auto;
+    grid-template-columns: 1fr;
+    border-radius: 24px;
+  }
+
+  .ssp-scope .project-modal-media {
+    position: relative;
+    height: auto;
+    min-height: 220px;
+  }
+
+  .ssp-scope .project-modal-media img,
+  .ssp-scope .project-modal-media video {
+    min-height: 220px;
+    height: 220px;
+  }
+
+  .ssp-scope .project-modal-content {
+    display: block;
+    padding: 24px 20px 26px;
+  }
+
+  .ssp-scope .project-modal-title {
+    max-width: calc(100% - 44px);
+    font-size: clamp(28px, 8vw, 40px);
+    white-space: normal;
+  }
+
+  .ssp-scope .project-modal-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .ssp-scope .project-modal-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ssp-scope .project-modal-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .ssp-scope .project-modal-cta {
+    flex: 1 1 auto;
+  }
+
+  .ssp-scope .section-copy,
+  .ssp-scope .content-grid {
+    position: relative;
+    top: auto;
+    left: auto;
+    right: auto;
+    width: min(88vw, 420px);
+    transform: none;
+  }
+
+  .ssp-scope .section-copy {
+    margin: 96px auto 16px;
+  }
+
+  .ssp-scope .content-grid {
+    grid-template-columns: 1fr;
+    row-gap: 18px;
+    margin: 0 auto;
+  }
+
+  .ssp-scope .tile,
+  .ssp-scope .tile-large {
+    height: auto;
+    min-height: 132px;
+  }
+}
+
+@media (max-width: 640px) {
+  .ssp-scope #home-title {
+    top: clamp(-36px, -5vh, -24px);
+  }
+  .ssp-scope .intro-enter-btn {
+    width: 164px;
+    height: 62px;
+    margin-top: 28vh;
+    border-radius: 20px;
+  }
+  .ssp-scope .intro-enter-cn {
+    font-size: 17px;
+  }
+  .ssp-scope .intro-enter-en {
+    font-size: 10px;
+  }
+  .ssp-scope .topbar {
+    padding: 20px;
+  }
+  .ssp-scope .brand span:last-child {
+    display: none;
+  }
+  .ssp-scope .page {
+    padding: 90px 20px 72px;
+  }
+  .ssp-scope h1 {
+    font-size: clamp(30px, 11vw, 52px);
+  }
+  .ssp-scope .profile-card,
+  .ssp-scope .tile {
+    padding: 16px 22px;
+    border-radius: 24px;
+  }
+  .ssp-scope .page-home {
+    gap: 18px;
+  }
+  .ssp-scope .progress-ui {
+    left: 20px;
+    right: 20px;
+  }
+}
+
+/* 音频控制面板 */
+.ssp-scope .audio-control-panel {
+  position: fixed;
+  top: calc(clamp(20px, 3vw, 42px) - 14.5px);
+  right: calc(clamp(22px, 5vw, 72px) + 113px);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(18px) saturate(1.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.ssp-scope .audio-control-panel:hover {
+  transform: none;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+.ssp-scope .audio-play-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  transition: background 0.25s ease, transform 0.2s ease;
+}
+
+.ssp-scope .audio-play-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  transform: scale(1.08);
+}
+
+.ssp-scope .audio-play-btn:active {
+  transform: scale(0.95);
+}
+
+.ssp-scope .audio-control-panel.is-playing .audio-play-btn {
+  background: rgba(100, 220, 220, 0.24);
+  color: rgba(100, 220, 220, 1);
+}
+
+.ssp-scope .audio-volume-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ssp-scope .audio-volume-icon {
+  display: flex;
+  align-items: center;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.ssp-scope .audio-volume-slider {
+  width: 80px;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.ssp-scope .audio-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.ssp-scope .audio-volume-slider::-webkit-slider-thumb:hover {
+  background: #fff;
+  transform: scale(1.15);
+}
+
+.ssp-scope .audio-volume-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.ssp-scope .audio-volume-slider::-moz-range-thumb:hover {
+  background: #fff;
+  transform: scale(1.15);
+}
+
+@media (max-width: 640px) {
+  .ssp-scope .audio-control-panel {
+    top: calc(20px - 3.5px);
+    right: 133px;
+    padding: 8px 14px;
+    gap: 10px;
+  }
+
+  .ssp-scope .audio-play-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  .ssp-scope .audio-volume-slider {
+    width: 60px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ssp-scope .intro-overlay,
+  .ssp-scope .intro-enter-btn {
+    transition: none !important;
+  }
+  .ssp-scope .content-track.is-moving,
+  .ssp-scope .bg-video,
+  .ssp-scope .hint::after {
+    transition: none !important;
+    animation: none !important;
+  }
+  .ssp-scope .audio-control-panel,
+  .ssp-scope .audio-play-btn {
+    transition: none !important;
+  }
+}
+
+/* ============================================
+   Scene 3: Gallery Page
+   ============================================ */
+
+.ssp-scope .page-gallery {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.ssp-scope .gallery-3d-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  gap: 20px;
+  justify-content: flex-end;
+  align-items: center;
+  padding-right: 5vw;
+  overflow: hidden;
+  perspective: 1000px;
+}
+
+.ssp-scope .photo-column {
+  position: relative;
+  width: 320px;
+  height: 80vh;
+  overflow: hidden;
+  transform-style: preserve-3d;
+}
+
+.ssp-scope .photo-column-left {
+  /* 左列特定样式（如需要） */
+}
+
+.ssp-scope .photo-column-right {
+  /* 右列特定样式（如需要） */
+}
+
+.ssp-scope .photo-track-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  transform-style: preserve-3d;
+  will-change: transform;
+
+  /* GPU 加速 */
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.ssp-scope .photo-card {
+  position: relative;
+  width: 300px;
+  height: 220px;
+  margin-bottom: 30px;
+
+  transform-style: preserve-3d;
+  will-change: transform;
+  transition: transform 0.15s ease-out;
+
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+
+  cursor: pointer;
+
+  /* GPU 加速 */
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+.ssp-scope .photo-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg,
+    rgba(255, 255, 255, 0.3) 0%,
+    rgba(255, 255, 255, 0) 50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  z-index: 2;
+}
+
+.ssp-scope .photo-card.is-hovered::before {
+  opacity: 1;
+}
+
+.ssp-scope .photo-card .shine-overlay {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(255, 255, 255, 0) 60%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 3;
+}
+
+.ssp-scope .photo-card.is-hovered .shine-overlay {
+  opacity: 1;
+}
+
+.ssp-scope .photo-card img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  transition: transform 0.15s ease-out;
+
+  /* GPU 加速和图片优化 */
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+.ssp-scope .photo-info-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 1rem;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0) 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.1s ease-out;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.ssp-scope .photo-card.is-hovered .photo-info-overlay {
+  opacity: 1;
+}
+
+.ssp-scope .photo-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #ffffff;
+  margin-bottom: 0.25rem;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.ssp-scope .photo-date {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.7);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.ssp-scope .photo-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: rgba(9, 11, 15, 0.95);
+  backdrop-filter: blur(24px);
+
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.8s cubic-bezier(0.7, 0, 0.16, 1);
+}
+
+.ssp-scope .photo-detail-overlay.is-active {
+  opacity: 1 !important;
+  pointer-events: all;
+}
+
+.ssp-scope .detail-content {
+  position: relative;
+  display: flex;
+  gap: 3rem;
+  max-width: 90vw;
+  max-height: 90vh;
+  margin: auto;
+
+  transform: scale(0.95);
+  transition: transform 0.4s cubic-bezier(0.7, 0, 0.16, 1);
+}
+
+.ssp-scope .photo-detail-overlay.is-active .detail-content {
+  transform: scale(1);
+}
+
+.ssp-scope .detail-image {
+  width: auto;
+  max-width: 60vw;
+  max-height: 80vh;
+  height: auto;
+
+  border-radius: 4px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+}
+
+.ssp-scope .detail-info {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1rem;
+  max-width: 320px;
+
+  padding: 2rem;
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 8px;
+  backdrop-filter: blur(12px);
+}
+
+.ssp-scope .detail-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.ssp-scope .detail-description {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--muted);
+  margin: 0;
+}
+
+.ssp-scope .detail-date {
+  font-size: 0.85rem;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.ssp-scope .detail-close {
+  position: absolute;
+  top: 2rem;
+  right: 2rem;
+
+  width: 48px;
+  height: 48px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 50%;
+
+  color: var(--muted);
+  cursor: pointer;
+
+  transition: all 0.2s ease;
+}
+
+.ssp-scope .detail-close:hover {
+  background: var(--panel-strong);
+  color: var(--text);
+  transform: scale(1.1);
+}
+
+/* ============================================
+   Carousel Preview Styles
+   ============================================ */
+
+.ssp-scope .carousel-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 9999;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: rgba(0, 0, 0, 0.95);
+  /* 移除 backdrop-filter 以提升性能 */
+
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease-out;
+
+  /* GPU 加速 */
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.ssp-scope .carousel-overlay.is-active {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.ssp-scope .carousel-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+
+  /* GPU 加速 */
+  transform: translateZ(0);
+}
+
+.ssp-scope .carousel-slides {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-width: 1400px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  perspective: 2000px;
+
+  /* GPU 加速 */
+  transform: translateZ(0);
+}
+
+.ssp-scope .carousel-slide {
+  position: absolute;
+  width: 75%;
+  max-width: 900px;
+  height: 85%;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.4s ease-out;
+  transform-style: preserve-3d;
+  will-change: transform, opacity;
+
+  /* GPU 加速 */
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.ssp-scope .carousel-slide.is-hidden {
+  transition: none;
+  pointer-events: none;
+}
+
+.ssp-scope .carousel-slide-content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 16px;
+  /* 移除 backdrop-filter 以提升性能 */
+  overflow: hidden;
+
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.9),
+    0 10px 30px rgba(0, 0, 0, 0.5);
+
+  /* GPU 加速 */
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.ssp-scope .carousel-slide.is-active .carousel-slide-content {
+  box-shadow:
+    0 40px 100px rgba(0, 0, 0, 1),
+    0 20px 50px rgba(255, 255, 255, 0.05);
+}
+
+.ssp-scope .carousel-image-wrapper {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 2rem 0 2rem;
+  overflow: hidden;
+}
+
+.ssp-scope .carousel-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  user-select: none;
+  pointer-events: none;
+
+  /* GPU 加速和图片优化 */
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+  image-rendering: -webkit-optimize-contrast;
+}
+
+.ssp-scope .carousel-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0 2rem 2rem 2rem;
+  width: 100%;
+  text-align: center;
+}
+
+.ssp-scope .carousel-title {
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.ssp-scope .carousel-description {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--muted);
+  margin: 0;
+}
+
+.ssp-scope .carousel-date {
+  font-size: 0.9rem;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Navigation Buttons */
+.ssp-scope .carousel-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+
+  width: 56px;
+  height: 56px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 50%;
+
+  color: var(--muted);
+  cursor: pointer;
+  z-index: 100;
+
+  transition: all 0.3s ease;
+}
+
+.ssp-scope .carousel-nav:hover:not(:disabled) {
+  background: var(--panel-strong);
+  color: var(--text);
+  transform: translateY(-50%) scale(1.1);
+  border-color: var(--text);
+}
+
+.ssp-scope .carousel-nav:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.ssp-scope .carousel-nav-prev {
+  left: 2rem;
+}
+
+.ssp-scope .carousel-nav-next {
+  right: 2rem;
+}
+
+/* Close Button */
+.ssp-scope .carousel-close {
+  position: absolute;
+  top: 2rem;
+  right: 2rem;
+
+  width: 48px;
+  height: 48px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 50%;
+
+  color: var(--muted);
+  cursor: pointer;
+  z-index: 100;
+
+  transition: all 0.2s ease;
+}
+
+.ssp-scope .carousel-close:hover {
+  background: var(--panel-strong);
+  color: var(--text);
+  transform: scale(1.1);
+}
+
+/* Counter */
+.ssp-scope .carousel-counter {
+  position: absolute;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+
+  padding: 0.75rem 1.5rem;
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 24px;
+  backdrop-filter: blur(12px);
+
+  font-size: 0.95rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  z-index: 100;
+}
+
+.ssp-scope .carousel-current {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+  .ssp-scope .carousel-container {
+    padding: 3rem 1rem;
+  }
+
+  .ssp-scope .carousel-slide {
+    width: 90%;
+    height: 80%;
+  }
+
+  .ssp-scope .carousel-slide-content {
+    gap: 1rem;
+    border-radius: 12px;
+  }
+
+  .ssp-scope .carousel-image-wrapper {
+    padding: 1.5rem 1.5rem 0 1.5rem;
+  }
+
+  .ssp-scope .carousel-info {
+    padding: 0 1.5rem 1.5rem 1.5rem;
+  }
+
+  .ssp-scope .carousel-title {
+    font-size: 1.25rem;
+  }
+
+  .ssp-scope .carousel-description {
+    font-size: 0.9rem;
+  }
+
+  .ssp-scope .carousel-nav {
+    width: 44px;
+    height: 44px;
+  }
+
+  .ssp-scope .carousel-nav-prev {
+    left: 1rem;
+  }
+
+  .ssp-scope .carousel-nav-next {
+    right: 1rem;
+  }
+
+  .ssp-scope .carousel-close {
+    top: 1rem;
+    right: 1rem;
+    width: 40px;
+    height: 40px;
+  }
+
+  .ssp-scope .carousel-counter {
+    bottom: 1rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+  }
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .ssp-scope .gallery-3d-stage {
+    padding-right: 2vw;
+    gap: 15px;
+  }
+
+  .ssp-scope .photo-column {
+    width: 240px;
+    height: 70vh;
+  }
+
+  .ssp-scope .photo-card {
+    width: 220px;
+    height: 160px;
+    border-radius: 8px;
+  }
+
+  .ssp-scope .detail-content {
+    flex-direction: column;
+    gap: 1.5rem;
+    padding: 1rem;
+  }
+
+  .ssp-scope .detail-image {
+    max-width: 90vw;
+    max-height: 50vh;
+  }
+
+  .ssp-scope .detail-info {
+    max-width: 100%;
+  }
+
+  .ssp-scope .detail-close {
+    top: 1rem;
+    right: 1rem;
+    width: 40px;
+    height: 40px;
+  }
+}
+
+@media (max-width: 480px) {
+  .ssp-scope .gallery-3d-stage {
+    padding-right: 1vw;
+    padding-left: 1vw;
+    gap: 10px;
+    justify-content: center;
+  }
+
+  .ssp-scope .photo-column {
+    width: 160px;
+    height: 60vh;
+  }
+
+  .ssp-scope .photo-card {
+    width: 150px;
+    height: 110px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+  }
+
+  /* 禁用 3D 效果以提升性能 */
+  .ssp-scope .photo-card.is-hovered::before {
+    opacity: 0.5;
+  }
+
+  .ssp-scope .photo-card .shine-overlay {
+    display: none;
+  }
+
+  .ssp-scope .detail-title {
+    font-size: 1.2rem;
+  }
+
+  .ssp-scope .detail-description {
+    font-size: 0.875rem;
+  }
+}
+
+/* =========================================================================
+ * 扩展层（本轮追加，不改动上方的原型样式表）
+ * 只放原型没有、但本站仍在用的东西：程序化背景层 / canvas / 弹窗 hidden / 相册兜底
+ * ========================================================================= */
+
+/* ---- 程序化背景层：视频缺失或 mediaMode=procedural 时顶上 ---- */
+.ssp-scope .bg-source {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  transition: opacity 680ms ease;
+}
+
+.ssp-scope .bg-source.is-visible { opacity: 1; }
+
+.ssp-scope .bg-source::after {
+  content: "";
+  position: absolute;
+  inset: -18%;
+  background: radial-gradient(circle at 30% 34%, rgba(120, 214, 255, .16), transparent 42%);
+  opacity: .8;
+}
+
+.ssp-scope .bg-source.is-running::after {
+  animation: bg-drift 18s ease-in-out infinite alternate;
+}
+
+.ssp-scope .bg-scene1     { background-image: linear-gradient(140deg, #0B1620 0%, #07090C 100%); }
+.ssp-scope .bg-transition { background-image: linear-gradient(120deg, #08131B 0%, #06080B 100%); z-index: 20; }
+.ssp-scope .bg-scene2     { background-image: linear-gradient(160deg, #0A1218 0%, #06080B 100%); }
+.ssp-scope .bg-scene2idle { background-image: linear-gradient(160deg, #091017 0%, #06080B 100%); }
+.ssp-scope .bg-scene3     { background-image: linear-gradient(140deg, #0A1020 0%, #06070C 100%); }
+.ssp-scope .bg-scene3loop { background-image: linear-gradient(140deg, #090E1B 0%, #06070C 100%); z-index: 11; }
+
+/* ---- 特效 canvas ---- */
+.ssp-scope .fx-canvas,
+.ssp-scope .audio-spectrum-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.ssp-scope .fx-canvas { opacity: .8; transition: opacity 420ms ease; }
+.ssp-scope .audio-spectrum-canvas { z-index: 4; opacity: .8; transition: opacity 420ms ease; }
+
+/* ---- 项目弹窗：原型用 opacity+pointer-events 控显隐，这里补回 [hidden] 语义 ---- */
+.ssp-scope .project-modal-overlay[hidden] { display: none !important; }
+
+/* ---- 相册页：原型写死 100vh，这里改回 --app-height（移动端地址栏才不塌） ---- */
+.ssp-scope .page-gallery { height: var(--app-height); }
+
+/* ---- 照片卡：无图时的渐变兜底（原型只认 img） ---- */
+.ssp-scope .photo-card-fallback {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.ssp-scope .photo-empty {
+  padding: 20px 18px;
+  border: 1px dashed rgba(255, 255, 255, .22);
+  border-radius: 12px;
+  color: rgba(255, 255, 255, .62);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* ---- 无 JS 提示 ---- */
+.ssp-scope .noscript-note {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 999;
+  padding: 14px 18px;
+  background: rgba(10, 12, 18, .92);
+  color: rgba(255, 255, 255, .88);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* ==========================================================================
+   第四层 · 迁移后修正（person 侧没有的规则）
+   ========================================================================== */
+
+/* 原 styles.css:911 —— `body.project-detail-open .content-track`
+   包进 scope 会变成永不匹配的 `.ssp-scope body.project-detail-open`。
+   状态改挂在 .ssp-scope 上（useSceneMachine 写 data-detail-open）。 */
+.ssp-scope[data-detail-open] .content-track {
+  pointer-events: none;
+}
+
+/* 原 styles.css:1150 —— `body[data-phase="scene4"] .contact-reveal`
+   同理，data-phase 由 useSceneMachine 归一化后写在 .ssp-scope 上
+   （归一化规则照抄 script.js:70：replace('-idle','').replace('-intro','')）。 */
+.ssp-scope[data-phase="scene4"] .contact-reveal {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 720ms ease var(--reveal-delay), transform 720ms ease var(--reveal-delay);
+}
+
+/* 原 styles.css:1156 的 `body[data-phase="scene4-idle"]` **有意不迁** ——
+   它是死规则：setPhase() 会把 -idle 后缀剥掉，body 上永远不会出现 scene4-idle。
+   person 自己的 PROJECT_SPEC.md §6.1 也承认了这点。
+
+/* 原 styles.css 的 `prefers-reduced-motion` 里那条
+   `.content-track.is-moving { transition: none }` 是不生效的 ——
+   script.js 从不给轨道加 is-moving 类（位移走 --scene-index + 内联 transitionDuration）。
+   person 的 PROJECT_SPEC.md §9 第 17 条把它列为"已知未修的小瑕疵"。
+   这里改成不带状态类的选择器，让它真正生效。 */
+@media (prefers-reduced-motion: reduce) {
+  .ssp-scope .content-track {
+    transition: none;
+  }
+}
+
+/* portal 专用层（本迁移新增）：项目详情弹窗与轮播遮罩的落点。
+   它们必须挂在 body 下 —— `.content-track` 带 transform 会让后代的 fixed 退化成
+   absolute（person 的 index.html 里有注释专门说明）。但直接 portal 到
+   document.body 又会脱离 .ssp-scope，导致 `.project-modal-*` / `.carousel-*`
+   的规则一条都不命中。所以给它们一个「在 scope 内、不受 transform 影响」的容器。
+
+   ⚠️ 不要改成 display: contents —— 那样元素在渲染树里会被移除，
+   .ssp-scope 上的 CSS 变量就传不给子元素了。 */
+.ssp-scope.ssp-portal-root {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+}

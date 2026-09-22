@@ -3,6 +3,7 @@
 #include "dao/user_dao.h"
 #include "dao/post_dao.h"
 #include "dao/comment_dao.h"
+#include "dao/contact_dao.h"
 #include "services/auth_service.h"
 #include "utils/logger.h"
 #include "utils/response.h"
@@ -402,6 +403,92 @@ static http::response<http::string_body> handle_admin_delete_comment(
     }
 }
 
+// @cuiruoni+管理员查看用户反馈留言（场景 4 联系表单落库的数据），支持分页
+static http::response<http::string_body> handle_admin_list_contacts(
+    const http::request<http::string_body>& req, const RouteParams& params) {
+    int64_t admin_id = 0;
+    std::string username, role;
+    if (!auth_service::extract_admin_from_token(req, admin_id, username, role)) {
+        http::response<http::string_body> res{http::status::forbidden, req.version()};
+        res.body() = response::error(403, "Admin access required");
+        res.prepare_payload();
+        return res;
+    }
+
+    int page = 1, page_size = 10;
+    auto it = params.query.find("page");
+    if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second);
+    it = params.query.find("page_size");
+    if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second);
+    if (page_size > 100) page_size = 100;
+
+    try {
+        int total = 0;
+        json::array arr = contact_dao::list(page, page_size, total);
+
+        json::object data;
+        data["contacts"] = arr;
+        data["total"] = total;
+        data["page"] = page;
+        data["page_size"] = page_size;
+
+        http::response<http::string_body> res{http::status::ok, req.version()};
+        res.body() = response::success(data);
+        res.prepare_payload();
+        return res;
+    } catch (const std::exception& e) {
+        spdlog::error("Admin list contacts error: {}", e.what());
+        http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+        res.body() = response::error(500, "Internal server error");
+        res.prepare_payload();
+        return res;
+    }
+}
+
+// @cuiruoni+管理员删除留言
+static http::response<http::string_body> handle_admin_delete_contact(
+    const http::request<http::string_body>& req, const RouteParams& params) {
+    int64_t admin_id = 0;
+    std::string username, role;
+    if (!auth_service::extract_admin_from_token(req, admin_id, username, role)) {
+        http::response<http::string_body> res{http::status::forbidden, req.version()};
+        res.body() = response::error(403, "Admin access required");
+        res.prepare_payload();
+        return res;
+    }
+
+    auto it = params.path.find("id");
+    if (it == params.path.end()) {
+        http::response<http::string_body> res{http::status::bad_request, req.version()};
+        res.body() = response::error(400, "Missing contact id");
+        res.prepare_payload();
+        return res;
+    }
+
+    int64_t contact_id = sanitize::safe_stoll(it->second);
+
+    try {
+        if (!contact_dao::exists_by_id(contact_id)) {
+            http::response<http::string_body> res{http::status::not_found, req.version()};
+            res.body() = response::error(404, "Contact message not found");
+            res.prepare_payload();
+            return res;
+        }
+
+        contact_dao::delete_by_id(contact_id);
+        http::response<http::string_body> res{http::status::ok, req.version()};
+        res.body() = response::success(std::string("Contact message deleted"));
+        res.prepare_payload();
+        return res;
+    } catch (const std::exception& e) {
+        spdlog::error("Admin delete contact error: {}", e.what());
+        http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+        res.body() = response::error(500, "Internal server error");
+        res.prepare_payload();
+        return res;
+    }
+}
+
 // @cuiruoni+注册管理员API路由，所有路由在handler内部通过extract_admin_from_token检查权限
 void register_admin_routes(Router& router) {
     router.add_route("GET", "/api/admin/stats", handle_admin_stats);
@@ -412,4 +499,6 @@ void register_admin_routes(Router& router) {
     router.add_route("DELETE", "/api/admin/posts/:id", handle_admin_delete_post);
     router.add_route("GET", "/api/admin/comments", handle_admin_list_comments);
     router.add_route("DELETE", "/api/admin/comments/:id", handle_admin_delete_comment);
+    router.add_route("GET", "/api/admin/contacts", handle_admin_list_contacts);
+    router.add_route("DELETE", "/api/admin/contacts/:id", handle_admin_delete_contact);
 }

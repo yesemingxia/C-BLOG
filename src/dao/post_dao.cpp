@@ -95,6 +95,51 @@ json::array list_posts(int page, int page_size, const std::string& status, int& 
     }
 }
 
+// @cuiruoni+某作者自己的全部文章（含草稿）：与 list_posts 相同行结构，仅 WHERE 不同
+json::array list_by_author(int64_t author_id, int page, int page_size, int& total) {
+    total = 0;
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return json::array{};
+
+    try {
+        auto count_result = sess->sql("SELECT COUNT(*) FROM posts WHERE user_id = ?")
+                                .bind(author_id).execute();
+        total = static_cast<int>(count_result.fetchOne()[0]);
+
+        int offset = (page - 1) * page_size;
+        auto result = sess->sql(
+            "SELECT p.id, p.title, p.summary, p.user_id, p.status, p.view_count, "
+            "DATE_FORMAT(p.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, "
+            "DATE_FORMAT(p.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, u.username, "
+            "(SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) AS like_count, "
+            "(SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count "
+            "FROM posts p LEFT JOIN users u ON p.user_id = u.id "
+            "WHERE p.user_id = ? ORDER BY p.updated_at DESC LIMIT ? OFFSET ?")
+            .bind(author_id).bind(page_size).bind(offset).execute();
+
+        json::array arr;
+        for (auto row : result) {
+            json::object obj;
+            obj["id"] = mysqlx_helper::to_json(row[0]);
+            obj["title"] = mysqlx_helper::to_string(row[1]);
+            obj["summary"] = mysqlx_helper::is_null(row, 2) ? "" : mysqlx_helper::to_string(row[2]);
+            obj["user_id"] = mysqlx_helper::to_json(row[3]);
+            obj["status"] = mysqlx_helper::to_string(row[4]);
+            obj["view_count"] = mysqlx_helper::to_json(row[5]);
+            obj["created_at"] = mysqlx_helper::to_string(row[6]);
+            obj["updated_at"] = mysqlx_helper::to_string(row[7]);
+            obj["author"] = mysqlx_helper::is_null(row, 8) ? "" : mysqlx_helper::to_string(row[8]);
+            obj["like_count"] = mysqlx_helper::to_json(row[9]);
+            obj["comment_count"] = mysqlx_helper::to_json(row[10]);
+            arr.push_back(obj);
+        }
+        return arr;
+    } catch (const std::exception& e) {
+        spdlog::error("post_dao::list_by_author error: {}", e.what());
+        return json::array{};
+    }
+}
+
 Post find_by_id(int64_t id) {
     auto sess = MysqlPool::instance().acquire();
     Post p;

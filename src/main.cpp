@@ -13,8 +13,8 @@
 #include "controllers/contact_controller.h"
 #include "controllers/search_controller.h"
 #include "controllers/notification_controller.h"
-#include "controllers/style_controller.h"
-#include "services/style_service.h"
+#include "controllers/upload_controller.h"
+#include "controllers/video_controller.h"
 #include "middleware/auth_middleware.h"
 
 #include <boost/beast/http.hpp>
@@ -94,7 +94,8 @@ int main(int argc, char* argv[]) {
         register_search_routes(router);
         register_notification_routes(router);
         register_contact_routes(router);
-        register_style_routes(router);
+        register_upload_routes(router);
+        register_video_routes(router);
 
         // @cuiruoni+健康检查端点，包含MySQL/Redis连接池状态
         router.add_route("GET", "/", [](const auto& req, const auto&) {
@@ -114,12 +115,9 @@ int main(int argc, char* argv[]) {
             return res;
         });
 
-        // @cuiruoni+注册信号处理，支持Ctrl+C和kill命令优雅退出
+        // @cuiruoni+初始化信号处理，支持Ctrl+C和kill命令优雅退出
         std::signal(SIGINT, signal_handler);
         std::signal(SIGTERM, signal_handler);
-
-        // @cuiruoni+初始化风格转换服务（创建图片存储目录）
-        style_service::init();
 
         Server server(cfg.server_host(), cfg.server_port(), router, cfg.server_threads());
 
@@ -140,9 +138,6 @@ int main(int argc, char* argv[]) {
         // @cuiruoni+服务器停止后释放所有连接池资源
         MysqlPool::instance().close();
         RedisPool::instance().close();
-
-        // @cuiruoni+等待风格转换后台任务结束，避免进程退出时任务线程与全局状态竞态
-        style_service::shutdown();
 
         spdlog::info("cpp-blog stopped");
     } catch (const std::exception& e) {

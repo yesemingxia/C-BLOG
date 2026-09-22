@@ -60,6 +60,40 @@ static http::response<http::string_body> handle_list_posts(
     return res;
 }
 
+// @cuiruoni+GET /api/posts/mine → 当前用户自己的全部文章（含草稿）。
+// ⚠️ 必须注册在 GET /api/posts/:id 之前，否则 "mine" 会被当作 :id 匹配。
+static http::response<http::string_body> handle_mine_posts(
+    const http::request<http::string_body>& req, const RouteParams& params) {
+    int64_t user_id = 0;
+    std::string username, role;
+    if (!auth_service::extract_user_from_token(req, user_id, username, role)) {
+        http::response<http::string_body> res{http::status::unauthorized, req.version()};
+        res.body() = response::error(401, "Authentication required");
+        res.prepare_payload();
+        return res;
+    }
+
+    int page = 1, page_size = 20;
+    auto it = params.query.find("page");
+    if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second, 1);
+    it = params.query.find("page_size");
+    if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second, 20);
+    if (page_size > 100) page_size = 100;
+
+    int total = 0;
+    auto arr = post_dao::list_by_author(user_id, page, page_size, total);
+
+    json::object data;
+    data["posts"] = std::move(arr);
+    data["total"] = total;
+    data["page"] = page;
+    data["page_size"] = page_size;
+    http::response<http::string_body> res{http::status::ok, req.version()};
+    res.body() = response::success(json::value(std::move(data)));
+    res.prepare_payload();
+    return res;
+}
+
 static http::response<http::string_body> handle_get_post(
     const http::request<http::string_body>& req, const RouteParams& params) {
     auto it = params.path.find("id");
@@ -484,6 +518,7 @@ void register_post_routes(Router& router) {
     // 否则会被 :id 路由吞掉
     router.add_route("GET", "/api/posts/liked", handle_list_liked_posts);
     router.add_route("GET", "/api/posts/bookmarked", handle_list_bookmarked_posts);
+    router.add_route("GET", "/api/posts/mine", handle_mine_posts);
     router.add_route("GET", "/api/posts", handle_list_posts);
     router.add_route("GET", "/api/posts/:id", handle_get_post);
     router.add_route("POST", "/api/posts", handle_create_post);

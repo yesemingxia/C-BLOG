@@ -1,9 +1,28 @@
 import { useState } from "react";
 import { useNavigate, useMatch } from "react-router-dom";
-import { Eye, EyeOff, Mail, Lock, User, Sparkles, ArrowRight, ChevronLeft } from "lucide-react";
-import GlassBackground from "../components/layout/GlassBackground";
+import { Eye, EyeOff, Mail, Lock, User, ArrowRight, ChevronLeft } from "lucide-react";
+import "../styles/showcase-auth.css";
+import ShowcaseBackdrop from "../showcase/components/ShowcaseBackdrop";
 import { useAuth } from "../components/auth/AuthProvider";
 import { toast } from "sonner";
+
+/* Login.tsx — 登录 / 注册（同一套表单，isLogin 切换）
+ *
+ * 2026-09-21 换肤：背景换成 showcase 的舞台（ShowcaseBackdrop），卡片改用
+ * showcase 的暗色玻璃语言，与展示页同一套风格。原来的 GlassBackground +
+ * bento-card 是博客那套浅色皮肤，两套皮肤来回跳变太割裂 —— 用户拍板统一到展示页这边。
+ *
+ * ⚠️ 两条不能违反的约束（都是 fixed 布局的坑）：
+ *   1. 页面根元素 `.ssp-scope.ssp-auth` **不能有** transform / filter ——
+ *      内层 backdrop 的 .video-stage / .cinema-vignette / .grain 全是 fixed，
+ *      祖先一旦创建 containing block 它们就会整块错位。
+ *   2. 因此 `App.tsx` 里 /login 与 /register **不能包 PageTransition**
+ *      （它的 motion.div 带 translateY + blur，正是上面那条）。
+ *
+ * 逻辑没动：登录/注册、显示密码、错误提示都与原来一致。
+ * 唯一的行为变化是成功后的落点 —— 由 `/home` 改成 `/`（展示页），
+ * 因为改造后展示页就是博客本身，不再是「门面 + 跳转」。
+ */
 
 const Login = () => {
   const navigate = useNavigate();
@@ -45,90 +64,117 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden bg-background">
-      <GlassBackground />
+    <div className="ssp-scope ssp-auth">
+      {/* 背景：与展示页同一套舞台（视频 / 渐变兜底 + 暗角 + 噪点）。
+          dim 0.4 是给表单一个稳定的底 —— 视频画面明暗会变，压一层才好读。 */}
+      <ShowcaseBackdrop dim={0.4} />
 
-      <button
-        onClick={() => navigate("/")}
-        className="absolute top-8 left-8 flex items-center gap-2 text-sm font-bold text-foreground/40 hover:text-foreground transition-colors group z-20"
-      >
-        <ChevronLeft size={18} className="group-hover:-translate-x-1 transition-transform" />
+      <button type="button" className="auth-back" onClick={() => navigate("/")}>
+        <ChevronLeft size={16} />
         返回首页
       </button>
 
-      <div className="w-full max-w-[440px] z-10 animate-in fade-in zoom-in-95 duration-700">
-        <div className="bento-card p-8 md:p-10 relative overflow-hidden shadow-2xl">
-          {/* Top accent line */}
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-1 bg-[var(--foreground)] rounded-full blur-md opacity-30" />
-
-          <div className="text-center mb-10">
-            <div className="w-16 h-16 rounded-2xl mx-auto mb-6 bg-[var(--foreground)] text-[var(--background)] flex items-center justify-center shadow-lg animate-pulse-glow">
-              <Sparkles size={32} className="text-[var(--background)]" />
-            </div>
-            <h1 className="text-3xl font-black tracking-tight mb-2 font-[family-name:var(--font-display)]">
-              {isLogin ? "Welcome Back" : "Join Blog"}
-            </h1>
-            <p className="text-sm text-foreground/40 font-medium">
-              {isLogin ? "Continue your creative journey" : "Start your digital writing adventure"}
-            </p>
+      <div className="auth-shell">
+        <div className="auth-card">
+          <div className="auth-badge">
+            {/* @cuiruoni+用户指定图标：用上传的图（与站点 favicon 同一张） */}
+            <img src="/favicon.png" alt="Blog" className="auth-badge-img" />
           </div>
+          <h1 className="auth-title">{isLogin ? "Welcome Back" : "Join Blog"}</h1>
+          <p className="auth-sub">
+            {isLogin ? "登录后即可写文章、管理你的内容" : "创建一个账号，开始写下第一篇"}
+          </p>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit}>
             {!isLogin && (
-              <div className="space-y-1.5 animate-in slide-in-from-top-2 duration-300">
-                <label htmlFor="reg-username" className="text-xs font-bold text-foreground/40 ml-1">Username</label>
-                <div className="relative group">
-                  <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-foreground/20 group-focus-within:text-[var(--foreground)] transition-colors" />
-                  <input id="reg-username" type="text" placeholder="Your nickname" value={username} onChange={(e) => setUsername(e.target.value)} className="glass-input w-full pl-12 pr-4 py-3.5 rounded-2xl text-sm font-medium" required={!isLogin} />
+              <div className="auth-field">
+                <label className="auth-label" htmlFor="reg-username">用户名</label>
+                <div className="auth-input-wrap">
+                  <span className="auth-input-icon">
+                    <User size={16} />
+                  </span>
+                  <input
+                    id="reg-username"
+                    type="text"
+                    className="auth-input"
+                    placeholder="你的昵称"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    required={!isLogin}
+                  />
                 </div>
               </div>
             )}
 
-            <div className="space-y-1.5">
-              <label htmlFor="login-email" className="text-xs font-bold text-foreground/40 ml-1">Username or Email</label>
-              <div className="relative group">
-                <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-foreground/20 group-focus-within:text-[var(--foreground)] transition-colors" />
-                <input id="login-email" type="text" placeholder="username or name@example.com" value={email} onChange={(e) => setEmail(e.target.value)} className="glass-input w-full pl-12 pr-4 py-3.5 rounded-2xl text-sm font-medium" required />
+            <div className="auth-field">
+              <label className="auth-label" htmlFor="login-email">用户名或邮箱</label>
+              <div className="auth-input-wrap">
+                <span className="auth-input-icon">
+                  <Mail size={16} />
+                </span>
+                <input
+                  id="login-email"
+                  type="text"
+                  className="auth-input"
+                  placeholder="username 或 name@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center ml-1">
-                <label htmlFor="login-pwd" className="text-xs font-bold text-foreground/40">Password</label>
-              </div>
-              <div className="relative group">
-                <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-foreground/20 group-focus-within:text-[var(--foreground)] transition-colors" />
-                <input id="login-pwd" type={showPwd ? "text" : "password"} placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} className="glass-input w-full pl-12 pr-12 py-3.5 rounded-2xl text-sm font-medium" required />
-                <button type="button" aria-label={showPwd ? "Hide password" : "Show password"} onClick={() => setShowPwd(!showPwd)} className="absolute right-4 top-1/2 -translate-y-1/2 text-foreground/20 hover:text-foreground transition-colors">
-                  {showPwd ? <EyeOff size={18} /> : <Eye size={18} />}
+            <div className="auth-field">
+              <label className="auth-label" htmlFor="login-pwd">密码</label>
+              <div className="auth-input-wrap">
+                <span className="auth-input-icon">
+                  <Lock size={16} />
+                </span>
+                <input
+                  id="login-pwd"
+                  type={showPwd ? "text" : "password"}
+                  className="auth-input"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+                <button
+                  type="button"
+                  className="auth-eye"
+                  aria-label={showPwd ? "隐藏密码" : "显示密码"}
+                  onClick={() => setShowPwd(!showPwd)}
+                >
+                  {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
 
-            <button type="submit" disabled={loading} className="btn-primary w-full py-4 rounded-2xl text-sm font-black flex items-center justify-center gap-3 mt-4 disabled:opacity-50">
+            <button type="submit" className="auth-submit" disabled={loading}>
               {loading ? (
-                <div className="w-5 h-5 border-2 border-[var(--primary-foreground)]/30 border-t-[var(--primary-foreground)] rounded-full animate-spin" />
+                <>
+                  <span className="auth-spin" />
+                  处理中…
+                </>
               ) : (
                 <>
-                  {isLogin ? "Sign In" : "Create Account"}
-                  <ArrowRight size={18} />
+                  {isLogin ? "登录" : "创建账号"}
+                  <ArrowRight size={16} />
                 </>
               )}
             </button>
           </form>
 
-          <div className="text-center mt-8 pt-6 border-t border-foreground/10">
-            <p className="text-sm text-foreground/40 font-medium">
-              {isLogin ? "Don't have an account?" : "Already have an account?"}
-              <button onClick={() => setIsLogin(!isLogin)} className="ml-2 text-[var(--foreground)] font-black hover:underline">
-                {isLogin ? "Sign Up" : "Sign In"}
-              </button>
-            </p>
-          </div>
+          <p className="auth-switch">
+            {isLogin ? "还没有账号？" : "已经有账号了？"}
+            <button type="button" className="auth-switch-btn" onClick={() => setIsLogin(!isLogin)}>
+              {isLogin ? "去注册" : "去登录"}
+            </button>
+          </p>
         </div>
 
-        <p className="text-center text-[10px] text-foreground/20 font-bold uppercase tracking-widest mt-8">
-          By signing in you agree to our Terms of Service and Privacy Policy
+        <p className="auth-foot">
+          {isLogin ? "登录即表示同意服务条款与隐私政策" : "注册即表示同意服务条款与隐私政策"}
         </p>
       </div>
     </div>

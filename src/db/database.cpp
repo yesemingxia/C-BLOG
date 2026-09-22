@@ -110,6 +110,22 @@ void Database::init_tables() {
             ")"
         ).execute();
 
+        // @cuiruoni+视频投稿表：用户上传的背景视频，审核通过后由管理员「启用」唯一一支作为主页背景
+        sess->sql(
+            "CREATE TABLE IF NOT EXISTS video_submissions ("
+            "  id BIGINT PRIMARY KEY AUTO_INCREMENT,"
+            "  uploader_id BIGINT NOT NULL,"
+            "  filename VARCHAR(255) NOT NULL,"
+            "  original_name VARCHAR(255),"
+            "  status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',"
+            "  is_active TINYINT(1) NOT NULL DEFAULT 0,"
+            "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+            "  reviewed_at DATETIME NULL,"
+            "  INDEX idx_video_status(status),"
+            "  FOREIGN KEY (uploader_id) REFERENCES users(id) ON DELETE CASCADE"
+            ")"
+        ).execute();
+
         // @cuiruoni+创建全文索引，搜索服务依赖此索引，IF NOT EXISTS保证幂等
         try {
             sess->sql("CREATE FULLTEXT INDEX IF NOT EXISTS ft_posts_search ON posts(title, content_md)").execute();

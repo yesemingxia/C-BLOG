@@ -122,14 +122,11 @@ static http::response<http::string_body> handle_create_comment(
             ? body["parent_id"].as_int64() : 0;
 
         // @cuiruoni+根据是否有parent_id选择不同DAO方法，避免插入NULL到非必要字段
-        bool ok;
-        if (parent_id > 0) {
-            ok = comment_dao::insert_with_parent(post_id, author_name, author_email, content, parent_id);
-        } else {
-            ok = comment_dao::insert(post_id, author_name, author_email, content);
-        }
+        int64_t new_comment_id = parent_id > 0
+            ? comment_dao::insert_with_parent(post_id, author_name, author_email, content, parent_id)
+            : comment_dao::insert(post_id, author_name, author_email, content);
 
-        if (!ok) {
+        if (new_comment_id <= 0) {
             http::response<http::string_body> res{http::status::internal_server_error, req.version()};
             res.body() = response::error(500, "Failed to create comment");
             res.prepare_payload();
@@ -142,8 +139,12 @@ static http::response<http::string_body> handle_create_comment(
                 "评论了你的文章《" + post.title + "》", post.title);
         }
 
+        // @cuiruoni+回传创建后的完整评论对象（与 GET .../comments 的元素同构）：
+        // @cuiruoni+前端 Post.tsx 会把它直接追加进评论列表，只返回成功字符串会让列表出现一条空白项
+        json::object created = comment_dao::get_by_id(new_comment_id);
+
         http::response<http::string_body> res{http::status::created, req.version()};
-        res.body() = response::success(std::string("Comment created"));
+        res.body() = response::success(std::string("Comment created"), created);
         res.prepare_payload();
         return res;
     } catch (const std::exception& e) {

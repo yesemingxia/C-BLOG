@@ -1,0 +1,284 @@
+/* ==========================================================================
+   Showcase 风格的表单页（登录 / 注册）
+   --------------------------------------------------------------------------
+   为什么单独一个文件：同 `showcase-editor.css` —— `showcase.css` 是生成产物，
+   新增样式另建文件，在组件里 import。
+
+   约定：
+   1. 选择器带 `.ssp-scope` 前缀，页面根元素就是 `.ssp-scope`（这样内容才能取到
+      scope 内的 --text / --muted / --faint / --stroke 等变量）。
+   2. 不用 C-BLOG 的 --foreground / --card / --primary —— 那些是浅色主题的值，
+      在这套暗色舞台上会糊。
+   ========================================================================== */
+
+/* ⚠️ 页面根元素不能有 transform / filter —— 内层 ShowcaseBackdrop 全是 fixed。 */
+.ssp-scope.ssp-auth {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 20px;
+  overflow-x: hidden;
+}
+
+/* 内容层：抬到 backdrop（z-index 0）之上 */
+.ssp-scope .auth-shell {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 440px;
+}
+
+/* 返回入口：固定在左上，与 showcase 顶栏的视觉重量接近 */
+.ssp-scope .auth-back {
+  position: fixed;
+  top: 22px;
+  left: 24px;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  background: rgba(8, 10, 14, 0.5);
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 200ms var(--ease-cinema), background 200ms var(--ease-cinema),
+    border-color 200ms var(--ease-cinema);
+}
+
+.ssp-scope .auth-back:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* ---------------- 卡片 ---------------- */
+.ssp-scope .auth-card {
+  padding: 34px 32px 30px;
+  border: 1px solid var(--stroke);
+  border-radius: 18px;
+  /* 与 .editor-shell 同一档：0.8 上下才压得住水下镜头的明暗变化 */
+  background: rgba(8, 10, 14, 0.82);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.ssp-scope .auth-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  margin-bottom: 18px;
+  border-radius: 14px;
+  background: rgba(103, 232, 249, 0.14);
+  border: 1px solid rgba(103, 232, 249, 0.32);
+  color: #67e8f9;
+  overflow: hidden;
+}
+
+/* @cuiruoni+徽章内改为用户上传的图片（与站点 favicon 同一张），铺满圆角容器 */
+.ssp-scope .auth-badge .auth-badge-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 14px;
+}
+
+.ssp-scope .auth-title {
+  margin: 0 0 6px;
+  font-size: 25px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.ssp-scope .auth-sub {
+  margin: 0 0 26px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* ---------------- 字段 ---------------- */
+.ssp-scope .auth-field {
+  margin-bottom: 14px;
+}
+
+.ssp-scope .auth-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ssp-scope .auth-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ssp-scope .auth-input-icon {
+  position: absolute;
+  left: 13px;
+  display: inline-flex;
+  color: var(--faint);
+  pointer-events: none;
+  transition: color 200ms var(--ease-cinema);
+}
+
+.ssp-scope .auth-input-wrap:focus-within .auth-input-icon {
+  color: #67e8f9;
+}
+
+.ssp-scope .auth-input {
+  width: 100%;
+  padding: 12px 14px 12px 40px;
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 200ms var(--ease-cinema), background 200ms var(--ease-cinema);
+}
+
+.ssp-scope .auth-input::placeholder {
+  color: var(--faint);
+}
+
+.ssp-scope .auth-input:focus {
+  border-color: rgba(103, 232, 249, 0.55);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ssp-scope .auth-eye {
+  position: absolute;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  transition: color 200ms var(--ease-cinema), background 200ms var(--ease-cinema);
+}
+
+.ssp-scope .auth-eye:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ---------------- 提交 ---------------- */
+.ssp-scope .auth-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 13px 16px;
+  border: 0;
+  border-radius: 13px;
+  background: #67e8f9;
+  color: #06202a;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 200ms var(--ease-cinema), opacity 200ms var(--ease-cinema);
+}
+
+.ssp-scope .auth-submit:hover:not(:disabled) {
+  background: #a5f3fc;
+}
+
+.ssp-scope .auth-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.ssp-scope .auth-spin {
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(6, 32, 42, 0.3);
+  border-top-color: #06202a;
+  border-radius: 50%;
+  animation: auth-spin 800ms linear infinite;
+}
+
+@keyframes auth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------------- 底部切换 ---------------- */
+.ssp-scope .auth-switch {
+  margin: 22px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--stroke);
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.ssp-scope .auth-switch-btn {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #67e8f9;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ssp-scope .auth-switch-btn:hover {
+  text-decoration: underline;
+}
+
+.ssp-scope .auth-foot {
+  margin: 18px 0 0;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* ---------------- 窄屏 ---------------- */
+@media (max-width: 480px) {
+  .ssp-scope.ssp-auth {
+    padding: 18px 14px;
+  }
+
+  .ssp-scope .auth-card {
+    padding: 26px 20px 24px;
+  }
+
+  .ssp-scope .auth-back {
+    top: 14px;
+    left: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ssp-scope .auth-back,
+  .ssp-scope .auth-input,
+  .ssp-scope .auth-input-icon,
+  .ssp-scope .auth-eye,
+  .ssp-scope .auth-submit {
+    transition: none;
+  }
+
+  .ssp-scope .auth-spin {
+    animation: none;
+  }
+}

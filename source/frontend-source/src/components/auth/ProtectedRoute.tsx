@@ -25,7 +25,8 @@ export const ProtectedRoute = ({ children, adminOnly = false }: { children: Reac
   }
 
   if (adminOnly && !isAdmin) {
-    return <Navigate to="/home" replace />;
+    // @cuiruoni+无权访问时回展示页（/home 旧博客页已移除）
+    return <Navigate to="/" replace />;
   }
 
   return <>{children}</>;

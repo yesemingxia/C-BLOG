@@ -1,0 +1,129 @@
+/* showcase-entry.css — showcase 独有新增：通往博客的入口
+ *
+ * showcase.css 是 scope-css.cjs 的生成产物（勿直接改，见其文件头约定），
+ * 本文件按约定单独承载新增样式，并在 Showcase.tsx 中 import。
+ */
+
+/* 顶栏右侧：场景导航点 + 博客入口（wrapper 让两者靠右成组，不破坏 brand—nav 的 space-between） */
+.ssp-scope .topbar-right {
+  display: flex;
+  align-items: center;
+  gap: clamp(14px, 2vw, 26px);
+}
+
+.ssp-scope .topbar-blog-link {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 9px 18px;
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  color: rgba(255, 255, 255, 0.6);
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  transition: color 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+}
+.ssp-scope .topbar-blog-link:hover {
+  color: rgba(255, 255, 255, 0.95);
+  border-color: rgba(255, 255, 255, 0.36);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+/* @cuiruoni+管理员入口：与「文章」同款胶囊，琥珀色区分，仅 role=admin 可见 */
+.ssp-scope .topbar-admin-link {
+  color: rgba(251, 191, 36, 0.85);
+  border-color: rgba(251, 191, 36, 0.28);
+  background: rgba(251, 191, 36, 0.06);
+}
+.ssp-scope .topbar-admin-link:hover {
+  color: rgba(253, 230, 138, 1);
+  border-color: rgba(251, 191, 36, 0.6);
+  background: rgba(251, 191, 36, 0.12);
+}
+
+/* 入场层底部：跳过展示直达博客（absolute 定位，不碰「进入网站」按钮的原版布局） */
+.ssp-scope .intro-blog-link {
+  position: absolute;
+  bottom: clamp(30px, 6vh, 64px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.5);
+  text-decoration: none;
+  transition: color 0.25s ease;
+  z-index: 2;
+}
+.ssp-scope .intro-blog-link:hover {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+/* ------------------------------------------------------------------
+   顶部「下拉进入登录」手势区（PullToLogin.tsx）
+   · 固定在顶部中央、半透明，不与顶栏 brand / 导航抢位（中间是空的）
+   · 拖动进度由组件写入 CSS 变量 --pull（0~1）：
+     透明度、箭头位移、提示条宽度全部跟随，React 只在跨阈值时 setState
+   · touch-action: none + pointer capture 保证按住后拖出区域也持续跟踪
+   ------------------------------------------------------------------ */
+.ssp-scope .pull-login {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%) translateY(calc(var(--pull, 0) * 6px));
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 20px 10px;
+  border: 1px solid rgba(255, 255, 255, calc(0.08 + var(--pull, 0) * 0.25));
+  border-top: none;
+  border-radius: 0 0 16px 16px;
+  background: rgba(10, 12, 16, calc(0.25 + var(--pull, 0) * 0.3));
+  backdrop-filter: blur(6px);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  opacity: calc(0.4 + var(--pull, 0) * 0.6);
+  transition: opacity 0.2s ease;
+}
+.ssp-scope .pull-login:active {
+  cursor: grabbing;
+}
+
+.ssp-scope .pull-login .pull-login-arrow {
+  color: rgba(255, 255, 255, 0.55);
+  transform: translateY(calc(var(--pull, 0) * 9px));
+  transition: transform 0.06s linear, color 0.2s ease;
+}
+.ssp-scope .pull-login .pull-login-arrow-b {
+  margin-top: -10px;
+  opacity: 0.45;
+}
+.ssp-scope .pull-login .pull-login-arrow.is-armed {
+  color: rgba(140, 235, 200, 0.95);
+}
+
+/* 空闲时第二支箭头轻微上下浮动，提示「可以往下拉」；按住后交给 --pull 接管 */
+@keyframes pull-login-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(3px); }
+}
+.ssp-scope .pull-login:not(:active) .pull-login-arrow-b {
+  animation: pull-login-bob 1.8s ease-in-out infinite;
+}
+
+.ssp-scope .pull-login .pull-login-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+  transition: color 0.2s ease;
+}
+.ssp-scope .pull-login .pull-login-hint.is-armed,
+.ssp-scope .pull-login.is-armed .pull-login-hint {
+  color: rgba(140, 235, 200, 0.95);
+}

@@ -97,6 +97,48 @@ redis_data/
 # Generated style-transfer images
 uploads/
 
+# 媒体素材 —— 一律不入库
+#
+# 两个理由：
+#   1. 体积（背景音乐 3.7MB、六个背景视频共 71MB）
+#   2. **版权归属未明** —— 这些素材来自外部，入库会跟着仓库一起分发
+#
+# showcase 的静态资源落在 source/frontend-source/public/showcase/assets/，
+# 走 .gitignore 排除后仍可正常本地运行（Vite 从磁盘读 public/，不经过 git）。
+# 确有必要入库时用 `git add -f <file>` 显式覆盖。
+#
+# ⚠️ 注意不要在这里加 `*.ts` —— 那是 TypeScript 源码的扩展名。
+#    同理 `*.map` 是 sourcemap，别顺手加。
+
+# 音频
+*.mp3
+*.wav
+*.m4a
+*.aac
+*.ogg
+*.oga
+*.opus
+*.flac
+*.aiff
+*.aif
+*.weba
+*.mid
+*.midi
+
+# 视频
+*.mp4
+*.m4v
+*.webm
+*.mov
+*.avi
+*.mkv
+*.wmv
+*.flv
+*.mpeg
+*.mpg
+*.3gp
+*.ogv
+
 # 压缩包 / 临时文件
 *.zip
 *.tar.gz
@@ -105,3 +147,25 @@ uploads/
 *.7z
 tmp/
 temp/
+
+# ============================================================================
+# 本地 / 工具 / 第三方产物 —— 不属于项目源码，一律不入库
+# ============================================================================
+
+# Agent 与工具的工作区（含对话记忆、验证截图、临时脚本、桌面状态）
+.workbuddy/
+.reasonix/
+reasonix.toml
+
+# 编辑器本地配置（含本机绝对路径）
+CMakeSettings.json
+CMakeUserPresets.json
+
+# 本地备份快照（60+ 文件的整份前端拷贝，需要时从磁盘取即可）
+backups/
+
+# 从市场下载的第三方 Skill 素材（版权归属第三方，不入库）
+gathered-scenes-zine-skill/
+
+# 前端构建产物校验目录（临时，不入库）
+dist-check-fx/

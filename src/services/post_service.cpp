@@ -9,6 +9,30 @@
 
 namespace post_service {
 
+// @cuiruoni+P0修复：UTF-8 安全截断（按"字符数"而不是"字节数"）。
+// 背景：自动摘要原先用 content_md.substr(0, 200) —— substr 按**字节**切，
+// 中文一个字 3 字节，200 字节处正好落在某个字中间 → summary 变成非法 UTF-8 →
+// mysqlx 绑定报 "CDK Error: Failed string conversion"，整篇文章 500。
+// **英文永远不会触发**（ASCII 任意切都合法），所以之前全部测试数据都没暴露；
+// 用户一旦用中文写文章就必炸。修法：按 UTF-8 code point 数到 200 个字符再切，
+// 每个字符的首字节决定序列长度，切点天然落在字符边界上。
+static std::string utf8_truncate_chars(const std::string& s, size_t max_chars) {
+    size_t count = 0;
+    size_t i = 0;
+    while (i < s.size() && count < max_chars) {
+        const unsigned char b = static_cast<unsigned char>(s[i]);
+        size_t len = 1;
+        if ((b & 0xE0) == 0xC0) len = 2;
+        else if ((b & 0xF0) == 0xE0) len = 3;
+        else if ((b & 0xF8) == 0xF0) len = 4;
+        // 非法序列（continuation byte 开头）：按 1 字符走，避免死循环
+        if (i + len > s.size()) len = 1;
+        i += len;
+        count++;
+    }
+    return s.substr(0, i);
+}
+
 json::object post_to_json(const Post& post) {
     json::array tags;
     for (const auto& tag : post.tags) {
@@ -101,10 +125,12 @@ int64_t create_post(const Post& post) {
     try {
         // @cuiruoni+Markdown→HTML渲染，使用cmark库转换
         std::string html = markdown_service::render(post.content_md);
-        // @cuiruoni+自动摘要：未提供摘要时截取Markdown原文前200字符
+        // @cuiruoni+自动摘要：未提供摘要时截取Markdown原文前200个字符
+        //（必须走 UTF-8 安全截断 —— 原先 substr(0,200) 按字节切会把中文切成非法序列，
+        // 导致 mysqlx "Failed string conversion"，中文文章发布 500）
         std::string summary = post.summary;
         if (summary.empty() && post.content_md.size() > 200) {
-            summary = post.content_md.substr(0, 200);
+            summary = utf8_truncate_chars(post.content_md, 200);
         } else if (summary.empty()) {
             summary = post.content_md;
         }

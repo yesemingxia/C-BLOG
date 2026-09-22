@@ -1,0 +1,44 @@
+/* ==========================================================================
+   ShowcaseBackdrop 样式 —— 把 showcase 的舞台背景借给登录页 / Admin / 个人主页
+   --------------------------------------------------------------------------
+   与 `showcase-editor.css` 同理：`showcase.css` 是 `scope-css.cjs` 的**生成产物**，
+   本文件是新增，单独承载，在组件里 import。
+
+   选择器一律带 `.ssp-scope` 前缀（本组件根元素就带这个类），
+   取色只用 scope 内的变量：--text / --muted / --faint / --panel / --stroke / --ease-cinema。
+   ========================================================================== */
+
+/* 根层：铺满视口、钉在最底层、默认不吃事件。
+   ⚠️ 这一层**不能**有 transform / filter / contain / will-change ——
+   它是 .ssp-scope，内部 .video-stage / .cinema-vignette / .grain 全是 fixed，
+   一旦创建 containing block 就会全部错位（与 showcase 主体同一个坑）。 */
+.ssp-scope.ssp-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: #06070a;
+}
+
+/* 水波纹要收 pointermove，只能把事件放回来；
+   它在 z-index 0，页面内容抬到 10 以上就不会被它挡住点击。 */
+.ssp-scope.ssp-backdrop.is-interactive {
+  pointer-events: auto;
+}
+
+/* 压暗层：视频画面明暗会变，文字直接压上去时清时糊。
+   强度由组件按页面类型给（登录页 0.35，Admin 表格 0.5 这类）。 */
+.ssp-scope .ssp-backdrop-dim {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+/* 用了 backdrop 的页面，内容层统一抬到 10。
+   页面自己写 `position: relative; z-index: 10` 也可以，这里给个现成的类。 */
+.ssp-content-above-backdrop {
+  position: relative;
+  z-index: 10;
+}

@@ -77,6 +77,14 @@ export interface AdminComment {
   created_at: string;
 }
 
+export interface AdminContact {
+  id: number;
+  name: string;
+  email: string;
+  message: string;
+  created_at: string;
+}
+
 export interface UserProfile {
   id: number;
   username: string;
@@ -202,6 +210,17 @@ export const postsApi = {
     return posts.map(normalizePost);
   },
 
+  // @cuiruoni+分页版：连同 total 一起返回，供列表页计算总页数（Explore 的翻页按钮用）
+  listPage: async (page = 1, pageSize = 10): Promise<{ posts: ApiPost[]; total: number }> => {
+    const res = await request<ApiResponse<ApiPost[] | { posts: ApiPost[]; total?: number }>>(`/posts?page=${page}&page_size=${pageSize}`);
+    const d = res.data;
+    const posts = Array.isArray(d) ? d : d?.posts ?? [];
+    return {
+      posts: posts.map(normalizePost),
+      total: d && !Array.isArray(d) ? d.total ?? posts.length : posts.length,
+    };
+  },
+
   get: async (id: number): Promise<ApiPost> => {
     // @cuiruoni+P0修复：带认证头请求，作者才能读取自己的草稿
     const res = await request<ApiResponse<ApiPost>>(`/posts/${id}`, { headers: authHeaders() });
@@ -209,7 +228,17 @@ export const postsApi = {
     return normalizePost(res.data);
   },
 
-  create: async (data: { title: string; content_md: string; summary?: string; status?: string; tags?: string[] }): Promise<ApiPost> => {
+  // @cuiruoni+cover / visibility 两个字段是 Write.tsx 与 showcase 场景 3 编辑器都在传的，
+  // 原先类型声明里漏了 —— 靠"对象先赋给变量再传参"绕过了多余属性检查，声明补齐更准确
+  create: async (data: {
+    title: string;
+    content_md: string;
+    summary?: string;
+    status?: string;
+    tags?: string[];
+    cover?: string;
+    visibility?: string;
+  }): Promise<ApiPost> => {
     const res = await request<ApiResponse<ApiPost>>("/posts", {
       method: "POST",
       headers: authHeaders(),
@@ -259,6 +288,20 @@ export const postsApi = {
   bookmarked: async (page = 1, pageSize = 10): Promise<{ posts: ApiPost[]; total: number }> => {
     const res = await request<ApiResponse<{ posts: ApiPost[]; total: number }>>(
       `/posts/bookmarked?page=${page}&page_size=${pageSize}`, { headers: authHeaders() });
+    return res.data ?? { posts: [], total: 0 };
+  },
+
+  /** 我的文章：本人全部文章（含草稿），个人中心专用 */
+  mine: async (page = 1, pageSize = 50): Promise<{ posts: ApiPost[]; total: number }> => {
+    const res = await request<ApiResponse<{ posts: ApiPost[]; total: number }>>(
+      `/posts/mine?page=${page}&page_size=${pageSize}`, { headers: authHeaders() });
+    return res.data ?? { posts: [], total: 0 };
+  },
+
+  // @cuiruoni+草稿列表：status=draft 对非管理员即本人草稿（后端 P0 权限规则）
+  drafts: async (page = 1, pageSize = 50): Promise<{ posts: ApiPost[]; total: number }> => {
+    const res = await request<ApiResponse<{ posts: ApiPost[]; total: number }>>(
+      `/posts?status=draft&page=${page}&page_size=${pageSize}`, { headers: authHeaders() });
     return res.data ?? { posts: [], total: 0 };
   },
 };
@@ -347,6 +390,16 @@ export const adminApi = {
   deleteComment: async (id: number): Promise<void> => {
     await request(`/admin/comments/${id}`, { method: "DELETE", headers: authHeaders() });
   },
+
+  // @cuiruoni+留言管理：场景 4 联系表单落库的数据
+  listContacts: async (page = 1, pageSize = 10): Promise<{ contacts: AdminContact[]; total: number }> => {
+    const res = await request<ApiResponse<{ contacts: AdminContact[]; total: number }>>(`/admin/contacts?page=${page}&page_size=${pageSize}`, { headers: authHeaders() });
+    return res.data ?? { contacts: [], total: 0 };
+  },
+
+  deleteContact: async (id: number): Promise<void> => {
+    await request(`/admin/contacts/${id}`, { method: "DELETE", headers: authHeaders() });
+  },
 };
 
 export const profileApi = {
@@ -417,78 +470,189 @@ export const notificationsApi = {
   },
 };
 
-// @cuiruoni+图片风格转换 API（图片上传 → 后台 AI 生成）
-export interface StyleOption {
-  id: string;
-  name: string;
-  description: string;
-  ratio: string;
-}
-
-export interface StyleTaskInfo {
-  id: string;
-  style: string;
-  status: "pending" | "processing" | "done" | "failed";
-  error?: string;
-  result_url?: string;
-  created_at?: string;
-}
-
-export const styleApi = {
-  listStyles: async (): Promise<StyleOption[]> => {
-    const res = await request<ApiResponse<StyleOption[]>>("/styles");
-    return res.data ?? [];
-  },
-
-  transfer: async (
-    style: string,
-    imageBase64: string,
-    imageMime: string
-  ): Promise<{ task_id: string }> => {
-    // @cuiruoni+图片 base64 体积大，上传超时放宽到 60 秒
-    const res = await request<ApiResponse<{ task_id: string }>>(
-      "/styles/transfer",
+// @cuiruoni+通用图片上传 API：编辑器插图 / 文章封面共用（后端落盘 uploads/images/）
+export const uploadApi = {
+  /** File → base64 上传，返回可直接访问的 URL（/api/upload/file/xxx） */
+  image: async (file: File): Promise<string> => {
+    if (!file.type.startsWith("image/")) {
+      throw new Error("只能上传图片文件");
+    }
+    if (file.size > 7.5 * 1024 * 1024) {
+      throw new Error("图片过大，请压缩后重试（上限约 7.5MB）");
+    }
+    const image_base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result ?? "");
+        // dataURL 形如 data:image/png;base64,xxxx —— 只取 base64 部分
+        const idx = result.indexOf("base64,");
+        resolve(idx >= 0 ? result.slice(idx + 7) : result);
+      };
+      reader.onerror = () => reject(new Error("读取图片失败"));
+      reader.readAsDataURL(file);
+    });
+    const res = await request<ApiResponse<{ url: string }>>(
+      "/upload/image",
       {
         method: "POST",
-        body: JSON.stringify({ style, image_base64: imageBase64, image_mime: imageMime }),
+        body: JSON.stringify({ image_base64, image_mime: file.type }),
       },
       60_000
     );
-    if (!res.success || !res.data?.task_id) {
-      throw new Error(res.message || "提交失败");
+    if (!res.success || !res.data?.url) {
+      throw new Error(res.message || "上传失败");
     }
-    return res.data;
-  },
-
-  getTask: async (taskId: string): Promise<StyleTaskInfo> => {
-    const res = await request<ApiResponse<StyleTaskInfo>>(`/styles/tasks/${taskId}`);
-    if (!res.success || !res.data) {
-      throw new Error(res.message || "查询任务失败");
-    }
-    return res.data;
+    return res.data.url;
   },
 };
 
-// @cuiruoni+背景设置 API：服务器只留存配置信息（type/style_id/image_url），图片数据存浏览器本地
-export interface BackgroundSettingInfo {
-  type: string;
-  style_id?: string;
-  image_url?: string;
+// @cuiruoni+视频投稿 API（用户投稿 → 管理员审核 → 启用唯一一支作为主页背景）
+export interface VideoSubmission {
+  id: number;
+  uploader_id?: number;
+  uploader_name?: string;
+  filename?: string;
+  original_name?: string;
+  status: "pending" | "approved" | "rejected";
+  is_active?: boolean;
+  created_at?: string;
+  /** 可播放地址（/api/videos/file/xxx） */
+  url?: string;
 }
 
-export const backgroundApi = {
-  get: async (): Promise<{ background: BackgroundSettingInfo | null }> => {
-    const res = await request<ApiResponse<{ background: BackgroundSettingInfo | null }>>(
-      "/users/background"
+export const videosApi = {
+  /**
+   * 断点续传上传（MP4/WebM，≤50MB）：
+   * init 创建会话 → 按 1MB 顺序追加分片（Content-Range）→ complete 校验落库。
+   * 单片失败自动查询服务端已收字节并对齐重试（最多 5 次）；onProgress 回传 0~100。
+   */
+  upload: async (file: File, onProgress?: (percent: number) => void): Promise<VideoSubmission> => {
+    const okType = ["video/mp4", "video/webm"].includes(file.type) || /\.(mp4|webm)$/i.test(file.name);
+    if (!okType) throw new Error("仅支持 MP4 / WebM 格式");
+    if (file.size > 50 * 1024 * 1024) throw new Error("视频过大，上限 50MB");
+
+    const CHUNK = 1024 * 1024;
+    const MAX_RETRY = 5;
+
+    // 1. init
+    const initRes = await request<ApiResponse<{ upload_id: string; received: number }>>(
+      "/videos/upload/init",
+      { method: "POST", body: JSON.stringify({ file_size: file.size, filename: file.name }) },
+      30_000
     );
-    return res.data ?? { background: null };
+    if (!initRes.success || !initRes.data?.upload_id) {
+      throw new Error(initRes.message || "创建上传会话失败");
+    }
+    const uploadId = initRes.data.upload_id;
+    let offset = Math.min(initRes.data.received ?? 0, file.size);
+    onProgress?.(Math.floor((offset / file.size) * 100));
+
+    // 2. 顺序追加分片
+    while (offset < file.size) {
+      const end = Math.min(offset + CHUNK, file.size) - 1;
+      const slice = file.slice(offset, end + 1);
+      let attempt = 0;
+      // 单片重试循环：网络错误/409 时先查询服务端已收字节再对齐
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        attempt += 1;
+        try {
+          const res = await fetch(`${API_BASE}/videos/upload/${uploadId}`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/octet-stream",
+              "Content-Range": `bytes ${offset}-${end}/${file.size}`,
+            },
+            body: slice,
+            credentials: "include",
+          });
+          if (res.status === 409) {
+            // 服务端收到的比本地 offset 多（重复片/竞态）：重新对齐
+            const q = await fetch(`${API_BASE}/videos/upload/${uploadId}`, { credentials: "include" });
+            const qj = (await q.json()) as ApiResponse<{ received: number }>;
+            offset = Math.min(qj.data?.received ?? offset, file.size);
+            break; // 重新对齐后跳出内层，继续 while 外层从新 offset 发
+          }
+          const pj = (await res.json()) as ApiResponse<{ received: number }>;
+          if (!res.ok || pj.code !== 0) {
+            throw new Error(pj.message || "分片上传失败");
+          }
+          offset = pj.data.received;
+          break;
+        } catch (err) {
+          if (attempt >= MAX_RETRY) {
+            // 彻底失败：放弃会话，把错误抛给调用方
+            try {
+              await fetch(`${API_BASE}/videos/upload/${uploadId}`, { method: "DELETE", credentials: "include" });
+            } catch { /* 忽略 */ }
+            throw err instanceof Error ? err : new Error("上传失败");
+          }
+          // 网络类失败：等待后查询断点，从服务端已收字节继续
+          await new Promise((r) => setTimeout(r, 800 * attempt));
+          try {
+            const q = await fetch(`${API_BASE}/videos/upload/${uploadId}`, { credentials: "include" });
+            if (q.status === 404) throw new Error("上传会话已过期，请重新上传");
+            const qj = (await q.json()) as ApiResponse<{ received: number }>;
+            offset = Math.min(qj.data?.received ?? offset, file.size);
+          } catch (qErr) {
+            if (qErr instanceof Error && qErr.message.includes("过期")) throw qErr;
+          }
+        }
+      }
+      onProgress?.(Math.floor((offset / file.size) * 100));
+    }
+
+    // 3. complete
+    const compRes = await request<ApiResponse<VideoSubmission>>(
+      `/videos/upload/${uploadId}/complete`,
+      { method: "POST" },
+      30_000
+    );
+    if (!compRes.success || !compRes.data) {
+      throw new Error(compRes.message || "完成上传失败");
+    }
+    onProgress?.(100);
+    return compRes.data;
   },
 
-  save: async (bg: BackgroundSettingInfo): Promise<void> => {
-    await request("/users/background", {
+  /** 当前启用的背景视频（公开；全局唯一，没有则 null） */
+  active: async (): Promise<VideoSubmission | null> => {
+    const res = await request<ApiResponse<{ video: VideoSubmission | null }>>("/videos/active");
+    return res.data?.video ?? null;
+  },
+
+  /** 我的投稿（含审核状态） */
+  mine: async (): Promise<VideoSubmission[]> => {
+    const res = await request<ApiResponse<{ videos: VideoSubmission[] }>>("/videos/mine", { headers: authHeaders() });
+    return res.data?.videos ?? [];
+  },
+
+  remove: async (id: number): Promise<void> => {
+    await request(`/videos/${id}`, { method: "DELETE", headers: authHeaders() });
+  },
+
+  /** 管理员：分页按状态查看投稿 */
+  adminList: async (status: string, page = 1, pageSize = 10): Promise<{ videos: VideoSubmission[]; total: number }> => {
+    const res = await request<ApiResponse<{ videos: VideoSubmission[]; total: number }>>(
+      `/admin/videos?status=${status}&page=${page}&page_size=${pageSize}`, { headers: authHeaders() });
+    return res.data ?? { videos: [], total: 0 };
+  },
+
+  /** 管理员：审核 */
+  setStatus: async (id: number, status: "approved" | "rejected" | "pending"): Promise<void> => {
+    await request(`/videos/${id}/status`, {
       method: "PUT",
-      body: JSON.stringify(bg),
       headers: authHeaders(),
+      body: JSON.stringify({ status }),
+    });
+  },
+
+  /** 管理员：启用/停用当前背景（全局唯一，启用时自动通过） */
+  setActive: async (id: number, active: boolean): Promise<void> => {
+    await request(`/videos/${id}/active`, {
+      method: "PUT",
+      headers: authHeaders(),
+      body: JSON.stringify({ active }),
     });
   },
 };

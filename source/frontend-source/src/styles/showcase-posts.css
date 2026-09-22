@@ -1,0 +1,700 @@
+/* ==========================================================================
+   Showcase 场景 2 · 文章卡片 + 站内阅读弹窗
+   --------------------------------------------------------------------------
+   与 `showcase-editor.css` 同理：showcase.css 是生成产物，新增样式另建文件。
+   选择器带 `.ssp-scope` 前缀；取色只用 scope 内的变量
+   （--text / --muted / --faint / --panel / --panel-strong / --stroke / --ease-cinema）。
+
+   卡片本体沿用 `.project-card`（布局 / 悬停上浮 / 键盘可达 / 离场动效都在那套里），
+   这里只补文章特有的 meta 行、骨架屏、空态与弹窗。
+   ========================================================================== */
+
+/* ---------------- 卡片：meta 行 ---------------- */
+.ssp-scope .post-card-meta {
+  margin: 0 0 6px;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+/* 封面加载失败 / 无封面时的渐变兜底（相册那套 .photo-card-fallback 是给竖图的，
+   这里的比例是 16:10 的横图，单独给一个） */
+.ssp-scope .post-card-fallback {
+  background: linear-gradient(140deg, #12222c 0%, #0a1016 60%, #0d1a24 100%);
+}
+
+/* ---------------- 骨架屏 ---------------- */
+.ssp-scope .post-card.is-skeleton {
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.ssp-scope .post-skeleton-line {
+  display: block;
+  height: 11px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.ssp-scope .post-skeleton-line.is-short {
+  width: 58%;
+}
+
+/* ---------------- 空态 / 失败态 ---------------- */
+.ssp-scope .post-state {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 180px;
+  padding: 24px;
+  border: 1px dashed var(--stroke);
+  border-radius: 14px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.ssp-scope .post-state p {
+  margin: 0;
+  color: var(--text);
+}
+
+.ssp-scope .post-state-hint {
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.ssp-scope .post-retry {
+  padding: 7px 16px;
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 200ms var(--ease-cinema), border-color 200ms var(--ease-cinema);
+}
+
+.ssp-scope .post-retry:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* ---------------- 阅读弹窗（portal 到第二个 .ssp-scope） ----------------
+   z-index 400：高于编辑器发布面板（300）与项目弹窗（200），低于轮播（9999）。 */
+.ssp-scope .post-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(16px, 4vh, 48px) clamp(14px, 4vw, 48px);
+  background: rgba(3, 5, 9, 0.68);
+  opacity: 0;
+  transition: opacity 240ms var(--ease-cinema);
+}
+
+.ssp-scope .post-modal-overlay.is-open {
+  opacity: 1;
+}
+
+.ssp-scope .post-modal-card {
+  display: flex;
+  flex-direction: column;
+  width: min(880px, 100%);
+  max-height: min(86vh, 820px);
+  border: 1px solid var(--stroke);
+  border-radius: 18px;
+  /* 与 .editor-shell 同一档：正文是长文，面板太透会糊在背景画面上 */
+  background: rgba(8, 10, 14, 0.9);
+  overflow: hidden;
+  transform: translateY(14px) scale(0.985);
+  opacity: 0;
+  transition: transform 300ms var(--ease-cinema), opacity 300ms var(--ease-cinema);
+}
+
+.ssp-scope .post-modal-overlay.is-open .post-modal-card {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+
+.ssp-scope .post-modal-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--stroke);
+}
+
+.ssp-scope .post-modal-meta {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ssp-scope .post-modal-title {
+  margin: 0;
+  font-size: clamp(18px, 2.2vw, 24px);
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.ssp-scope .post-modal-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.ssp-scope .post-modal-close:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ssp-scope .post-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 22px 26px 26px;
+  scrollbar-width: thin;
+}
+
+.ssp-scope .post-modal-loading {
+  margin: 0;
+  padding: 20px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.ssp-scope .post-modal-cover {
+  width: 100%;
+  max-height: 240px;
+  object-fit: cover;
+  border-radius: 12px;
+  margin-bottom: 18px;
+}
+
+.ssp-scope .post-modal-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 24px 16px;
+  border-top: 1px solid var(--stroke);
+}
+
+/* ------------------------------------------------------------------
+   互动区（点赞 / 收藏 / 评论数）与评论区 —— 2026-09-21 新增，
+   替代被删除的文章详情页（原「去评论」按钮跳 /post/:id 已是死链）。
+   ------------------------------------------------------------------ */
+.ssp-scope .post-modal-engage {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--stroke);
+}
+
+.ssp-scope .post-modal-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease, transform 0.12s ease;
+}
+.ssp-scope .post-modal-act:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.ssp-scope .post-modal-act:active {
+  transform: scale(0.94);
+}
+.ssp-scope .post-modal-act.is-on {
+  color: #ff8fa3;
+  border-color: rgba(255, 143, 163, 0.55);
+  background: rgba(255, 143, 163, 0.12);
+}
+.ssp-scope .post-modal-act.is-on.is-mark {
+  color: #ffd479;
+  border-color: rgba(255, 212, 121, 0.55);
+  background: rgba(255, 212, 121, 0.12);
+}
+.ssp-scope .post-modal-act.is-static {
+  cursor: default;
+}
+.ssp-scope .post-modal-act.is-static:hover {
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--stroke);
+}
+
+/* 评论区 */
+.ssp-scope .post-modal-comments {
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow-y: auto;
+  padding: 14px 24px;
+  border-top: 1px solid var(--stroke);
+}
+
+.ssp-scope .post-modal-comments-title {
+  margin: 0 0 12px;
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+.ssp-scope .post-modal-comment-form {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.ssp-scope .post-modal-comment-inputwrap {
+  flex: 1;
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.ssp-scope .post-modal-comment-input {
+  flex: 1;
+  resize: none;
+  padding: 10px 14px;
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+  font-family: inherit;
+  transition: border-color 0.2s ease;
+}
+.ssp-scope .post-modal-comment-input:focus {
+  outline: none;
+  border-color: rgba(103, 232, 249, 0.55);
+}
+.ssp-scope .post-modal-comment-input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.ssp-scope .post-modal-comment-send {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(103, 232, 249, 0.16);
+  color: #67e8f9;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+}
+.ssp-scope .post-modal-comment-send:hover {
+  background: rgba(103, 232, 249, 0.26);
+  color: #a5f3fc;
+}
+.ssp-scope .post-modal-comment-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ssp-scope .post-modal-spin {
+  animation: post-modal-rotate 0.9s linear infinite;
+}
+@keyframes post-modal-rotate {
+  to { transform: rotate(360deg); }
+}
+
+.ssp-scope .post-modal-comment-login {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ssp-scope .post-modal-comment-login button {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: #67e8f9;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.ssp-scope .post-modal-comment-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ssp-scope .post-modal-comment {
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ssp-scope .post-modal-comment-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.ssp-scope .post-modal-comment-author {
+  font-size: 12px;
+  font-weight: 600;
+  color: #a5f3fc;
+}
+
+.ssp-scope .post-modal-comment-time {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.ssp-scope .post-modal-comment-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.88);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ssp-scope .post-modal-comment-empty {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  text-align: center;
+  padding: 10px 0 4px;
+}
+
+/* ------------------------------------------------------------------
+   场景 2 搜索框 + 标签筛选（2026-09-21 新增）
+   布局类 .work-layout / .section-header 在 showcase.css（生成文件勿改），
+   这两个新块按约定落在本文件。
+   ------------------------------------------------------------------ */
+.ssp-scope .work-search {
+  position: relative;
+  margin-top: 22px;
+}
+
+.ssp-scope .work-search-icon {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(255, 255, 255, 0.4);
+  pointer-events: none;
+}
+
+.ssp-scope .work-search-input {
+  width: 100%;
+  padding: 11px 36px 11px 38px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.ssp-scope .work-search-input:focus {
+  outline: none;
+  border-color: rgba(103, 232, 249, 0.55);
+  background: rgba(255, 255, 255, 0.08);
+}
+.ssp-scope .work-search-input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.ssp-scope .work-search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.ssp-scope .work-search-clear:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.ssp-scope .work-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.ssp-scope .work-tag {
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.ssp-scope .work-tag:hover {
+  color: rgba(255, 255, 255, 0.95);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.ssp-scope .work-tag.is-on {
+  color: #67e8f9;
+  border-color: rgba(103, 232, 249, 0.5);
+  background: rgba(103, 232, 249, 0.12);
+}
+
+.ssp-scope .work-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.ssp-scope .work-pager .work-tag:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ssp-scope .work-pager-info {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.6);
+  font-variant-numeric: tabular-nums;
+}
+
+.ssp-scope .post-modal-stats {
+  display: inline-flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ssp-scope .post-modal-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ssp-scope .post-modal-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ssp-scope .post-modal-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 13px;
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 200ms var(--ease-cinema), background 200ms var(--ease-cinema),
+    border-color 200ms var(--ease-cinema);
+}
+
+.ssp-scope .post-modal-link:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.ssp-scope .post-modal-btn {
+  padding: 8px 18px;
+  border: 0;
+  border-radius: 999px;
+  background: #67e8f9;
+  color: #06202a;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ssp-scope .post-modal-btn:hover {
+  background: #a5f3fc;
+}
+
+/* ---------------- 正文排版 ----------------
+   两套来源共用这一份：`.md-body` 是本地 renderMarkdown 的输出，
+   `.post-modal-html` 是后端 content_html（标签相同，只是渲染来源不同）。 */
+.ssp-scope .md-body,
+.ssp-scope .post-modal-html {
+  font-size: 14px;
+  line-height: 1.85;
+  color: var(--muted);
+}
+
+.ssp-scope .md-body h1,
+.ssp-scope .md-body h2,
+.ssp-scope .md-body h3,
+.ssp-scope .post-modal-html h1,
+.ssp-scope .post-modal-html h2,
+.ssp-scope .post-modal-html h3 {
+  margin: 22px 0 10px;
+  color: var(--text);
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.ssp-scope .md-body h1,
+.ssp-scope .post-modal-html h1 { font-size: 22px; }
+.ssp-scope .md-body h2,
+.ssp-scope .post-modal-html h2 { font-size: 18px; }
+.ssp-scope .md-body h3,
+.ssp-scope .post-modal-html h3 { font-size: 15px; }
+
+.ssp-scope .md-body p,
+.ssp-scope .post-modal-html p {
+  margin: 0 0 12px;
+}
+
+.ssp-scope .md-body ul,
+.ssp-scope .md-body ol,
+.ssp-scope .post-modal-html ul,
+.ssp-scope .post-modal-html ol {
+  margin: 0 0 14px;
+  padding-left: 22px;
+}
+
+.ssp-scope .md-body li,
+.ssp-scope .post-modal-html li {
+  margin: 0 0 5px;
+}
+
+.ssp-scope .md-body blockquote,
+.ssp-scope .post-modal-html blockquote {
+  margin: 14px 0;
+  padding: 9px 15px;
+  border-left: 2px solid rgba(103, 232, 249, 0.55);
+  border-radius: 0 8px 8px 0;
+  background: rgba(255, 255, 255, 0.045);
+  font-style: italic;
+}
+
+.ssp-scope .md-body .md-code,
+.ssp-scope .post-modal-html pre {
+  margin: 14px 0;
+  padding: 13px 15px;
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.34);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.ssp-scope .md-body .md-gap {
+  height: 12px;
+}
+
+.ssp-scope .md-body strong,
+.ssp-scope .post-modal-html strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.ssp-scope .md-body code,
+.ssp-scope .post-modal-html code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.ssp-scope .md-body a,
+.ssp-scope .post-modal-html a {
+  color: #67e8f9;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(103, 232, 249, 0.35);
+}
+
+.ssp-scope .post-modal-html img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 10px;
+}
+
+/* ---------------- 窄屏 ---------------- */
+@media (max-width: 768px) {
+  .ssp-scope .post-modal-overlay {
+    padding: 10px;
+  }
+
+  .ssp-scope .post-modal-card {
+    max-height: 92vh;
+  }
+
+  .ssp-scope .post-modal-head {
+    padding: 16px 18px 12px;
+  }
+
+  .ssp-scope .post-modal-body {
+    padding: 16px 18px 20px;
+  }
+
+  .ssp-scope .post-modal-foot {
+    padding: 10px 18px 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ssp-scope .post-modal-overlay,
+  .ssp-scope .post-modal-card {
+    transition: none;
+  }
+}
