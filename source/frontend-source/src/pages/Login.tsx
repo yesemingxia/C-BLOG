@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, useMatch } from "react-router-dom";
+import { useNavigate, useMatch, useLocation } from "react-router-dom";
 import { Eye, EyeOff, Mail, Lock, User, ArrowRight, ChevronLeft } from "lucide-react";
 import "../styles/showcase-auth.css";
 import ShowcaseBackdrop from "../showcase/components/ShowcaseBackdrop";
@@ -26,6 +26,7 @@ import { toast } from "sonner";
 
 const Login = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const isRegisterRoute = useMatch("/register");
   const { login: authLogin, register: authRegister } = useAuth();
   const [isLogin, setIsLogin] = useState(!isRegisterRoute);
@@ -35,6 +36,24 @@ const Login = () => {
   const [username, setUsername] = useState("");
   const [loading, setLoading] = useState(false);
 
+  /* 从文章弹窗「登录后即可发表评论」跳来的（见 PostModal.requireLogin）：
+     state 里带着要重开的文章 id，登录/注册成功后原样传回 /showcase，
+     由 Showcase 自动重开那篇文章的弹窗 —— 而不是落回首页。 */
+  const reopenPostId = (location.state as { reopenPost?: number } | null)?.reopenPost;
+
+  /* 左上角返回：从文章弹窗跳来的用户可能根本不想登录、只想接着读文章 ——
+     返回要把文章弹窗原样带回（Showcase 读到 reopenPost 重开）；其他来源
+     有历史就退回上一页，没有（直接输网址进来）才落回首页。 */
+  const handleBack = () => {
+    if (reopenPostId) {
+      navigate("/showcase", { state: { reopenPost: reopenPostId } });
+    } else if (((window.history.state as { idx?: number } | null)?.idx ?? 0) > 0) {
+      navigate(-1);
+    } else {
+      navigate("/");
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -43,7 +62,8 @@ const Login = () => {
         const res = await authLogin(email, password);
         if (res.success) {
           toast.success("登录成功！");
-          navigate("/");
+          if (reopenPostId) navigate("/showcase", { state: { reopenPost: reopenPostId } });
+          else navigate("/");
         } else {
           toast.error(res.message || "登录失败");
         }
@@ -51,7 +71,8 @@ const Login = () => {
         const res = await authRegister(username, email, password);
         if (res.success) {
           toast.success("注册成功！");
-          navigate("/");
+          if (reopenPostId) navigate("/showcase", { state: { reopenPost: reopenPostId } });
+          else navigate("/");
         } else {
           toast.error(res.message || "注册失败");
         }
@@ -69,9 +90,9 @@ const Login = () => {
           dim 0.4 是给表单一个稳定的底 —— 视频画面明暗会变，压一层才好读。 */}
       <ShowcaseBackdrop dim={0.4} />
 
-      <button type="button" className="auth-back" onClick={() => navigate("/")}>
+      <button type="button" className="auth-back" onClick={handleBack}>
         <ChevronLeft size={16} />
-        返回首页
+        {reopenPostId ? "返回文章" : "返回首页"}
       </button>
 
       <div className="auth-shell">

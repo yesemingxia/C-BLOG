@@ -23,10 +23,39 @@
   background: linear-gradient(140deg, #12222c 0%, #0a1016 60%, #0d1a24 100%);
 }
 
+/* ---------------- 场景 2 网格：桌面端也是可滚动区 ----------------
+   卡片多于一屏时在网格里一点点滚着看（滚轮归内容、不翻场景、不翻文章页），
+   与移动端（showcase.css 媒体查询里同款规则）和 .contact-layout 同一条策略；
+   滚到边界才轮到场景切换（useWheelNavigation 的 findScrollable 接管）。
+   max-height 留出顶栏与底部状态条的空间，与移动端的 174px 同一档。 */
+.ssp-scope .page-work .project-cards-grid {
+  max-height: calc(100dvh - 150px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding-right: 6px;
+}
+
 /* ---------------- 骨架屏 ---------------- */
 .ssp-scope .post-card.is-skeleton {
   pointer-events: none;
   opacity: 0.55;
+}
+
+/* ---------------- 软翻页过渡 ----------------
+   翻页不再"骨架屏闪一下直接换内容"：网格挂 is-paging 时旧卡片淡出上移，
+   新数据渲染出一帧后移除类名，卡片从上方滑落进场（"往下拉"的落位感）。
+   注意 transition 必须写在**基态**上 —— 类名移除后由基态接管，进场才有动画；
+   属性列表含 showcase.css 里 .project-card 的原有四项（悬停上浮不受影响）。 */
+.ssp-scope .project-card {
+  transition: transform 300ms ease, box-shadow 300ms ease, border-color 300ms ease,
+    background 300ms ease, opacity 280ms var(--ease-cinema);
+}
+
+.ssp-scope .project-cards-grid.is-paging .project-card {
+  opacity: 0;
+  transform: translateY(-26px);
+  pointer-events: none;
 }
 
 .ssp-scope .post-skeleton-line {

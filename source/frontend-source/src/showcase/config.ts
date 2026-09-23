@@ -80,7 +80,7 @@ export const CONFIG: ShowcaseConfig = {
   /* ---- 个性化（对应 PROJECT_SPEC §11 占位符） ---- */
   persona: {
     brand: 'PORTFOLIO / STUDIO',
-    nickname: '你的昵称',
+    nickname: '崔若霓斓',
     tagline: '一句签名，说明你是谁、在做什么。',
     location: '长沙',
     focus: 'Web · AI · Visual',

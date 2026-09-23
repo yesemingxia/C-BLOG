@@ -50,6 +50,19 @@ const SceneWork = ({ leaving, refreshToken = 0, onOpenPost }: SceneWorkProps) =>
   const [total, setTotal] = useState(0);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  /* 翻页过渡：翻页时不闪骨架屏 —— 旧卡片先淡出（网格挂 is-paging），
+     新数据渲染出一帧后再移除，卡片从上方滑落进场（"往下拉"的落位感）。
+     softRef 是同步闸门：请求在途时忽略下一次翻页，动画不会被打断。 */
+  const [softPaging, setSoftPaging] = useState(false);
+  const softRef = useRef(false);
+
+  const goToPage = (n: number) => {
+    if (n === page || softRef.current) return;
+    softRef.current = true;
+    setSoftPaging(true);
+    setPage(n);
+  };
+
   /* 搜索框防抖 */
   const handleSearchInput = (v: string) => {
     setSearchInput(v);
@@ -61,7 +74,8 @@ const SceneWork = ({ leaving, refreshToken = 0, onOpenPost }: SceneWorkProps) =>
   };
 
   const load = useCallback(async () => {
-    setLoading(true);
+    /* 软翻页时不亮骨架屏：旧卡片留在原地播放淡出动画 */
+    if (!softRef.current) setLoading(true);
     setError(false);
     try {
       // 数据源优先级：搜索 > 标签 > 默认列表（互斥，最近一次操作决定来源）
@@ -79,6 +93,18 @@ const SceneWork = ({ leaving, refreshToken = 0, onOpenPost }: SceneWorkProps) =>
       setError(true);
     } finally {
       setLoading(false);
+      if (softRef.current) {
+        /* 等新卡片真正渲染出一帧：先把网格滚回顶部（旧页可能滚在中途），
+           再松开 is-paging → 触发滑落进场动画 */
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            const grid = document.getElementById("projectGrid");
+            if (grid) grid.scrollTop = 0;
+            softRef.current = false;
+            setSoftPaging(false);
+          }),
+        );
+      }
     }
   }, [searchVal, activeTagId, page]);
 
@@ -161,6 +187,7 @@ const SceneWork = ({ leaving, refreshToken = 0, onOpenPost }: SceneWorkProps) =>
           leaving={leaving}
           loading={loading}
           error={error}
+          paging={softPaging}
           onRetry={load}
           onOpen={onOpenPost}
         />
@@ -171,8 +198,8 @@ const SceneWork = ({ leaving, refreshToken = 0, onOpenPost }: SceneWorkProps) =>
             <button
               type="button"
               className="work-tag"
-              disabled={page <= 1 || loading}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1 || softPaging}
+              onClick={() => goToPage(Math.max(1, page - 1))}
             >
               上一页
             </button>
@@ -182,8 +209,8 @@ const SceneWork = ({ leaving, refreshToken = 0, onOpenPost }: SceneWorkProps) =>
             <button
               type="button"
               className="work-tag"
-              disabled={page >= totalPages || loading}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages || softPaging}
+              onClick={() => goToPage(Math.min(totalPages, page + 1))}
             >
               下一页
             </button>

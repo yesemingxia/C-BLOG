@@ -25,6 +25,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import "../styles/showcase.css";
 /* 场景 3 编辑器样式：showcase 独有新增，按 showcase.css 头部的约定单独成文件，
    不参与 scope-css.cjs 的作用域化生成（重新生成 showcase.css 不会覆盖它）。 */
@@ -38,7 +39,7 @@ import "../styles/showcase-entry.css";
 import { useSceneMachine } from "./lib/useSceneMachine";
 import { useWheelNavigation } from "./lib/useWheelNavigation";
 import { applySceneVideoOverride } from "./sceneSources";
-import { videosApi } from "../lib/api";
+import { videosApi, postsApi } from "../lib/api";
 import type { Project } from "./lib/projects";
 import type { ApiPost } from "../lib/api";
 import PostModal from "./components/PostModal";
@@ -198,6 +199,46 @@ const Showcase = () => {
     setActivePost(null);
     api?.setDetailOpen(false);
   }, [api]);
+
+  /* ---------------- 登录后重开文章弹窗 ----------------
+     从文章弹窗点「登录」跳走时（PostModal.requireLogin）state 里带了文章 id，
+     Login 成功后原样传回 —— 这里读到就拉详情并重开弹窗，用户可以直接继续评论。
+     重开前先把场景切到 2（文章场景），否则弹窗背后还是场景 1 的首页背景。
+     state 用完立即清掉（replace），刷新 / 回退不会重复触发。 */
+  const location = useLocation();
+  const navigate = useNavigate();
+  const reopenPostId = (location.state as { reopenPost?: number } | null)?.reopenPost;
+
+  /* 入场层还开着时（登录页是本会话第一站，用户没点过「进入」）：
+     goToScene 会被 introActive 拦掉，所以先进站 + 借用 pendingScene 跳场景 2，
+     弹窗等 introActive 落下后再开。 */
+  const [pendingReopen, setPendingReopen] = useState<ApiPost | null>(null);
+
+  useEffect(() => {
+    if (!pendingReopen || introActive) return;
+    openPost(pendingReopen);
+    setPendingReopen(null);
+  }, [pendingReopen, introActive, openPost]);
+
+  useEffect(() => {
+    /* api 可能为 null（场景机在 effect 里才初始化）—— 等它就绪再开，
+       否则 setDetailOpen 会被吞掉，弹窗开着时场景还能被滚走。 */
+    if (!reopenPostId || !api) return;
+    navigate(location.pathname, { replace: true, state: null });
+    postsApi
+      .get(reopenPostId)
+      .then((full) => {
+        if (introActive) {
+          handleEnterSite();
+          setPendingReopen(full);
+          setPendingScene(2);
+        } else {
+          api.goToScene(2);
+          openPost(full);
+        }
+      })
+      .catch(() => { /* 拉不到详情（文章被删等）就静默放弃，落在 showcase 正常态 */ });
+  }, [reopenPostId, api, introActive, navigate, location.pathname, openPost, handleEnterSite]);
 
   /* 场景 3 发布成功后 +1 → 场景 2 重新拉列表，新文章立刻出现在这一屏 */
   const [postsRefreshToken, setPostsRefreshToken] = useState(0);

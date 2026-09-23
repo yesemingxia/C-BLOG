@@ -79,14 +79,17 @@ interface PostCardsProps {
   posts: ApiPost[];
   /** 场景 2 离场动效：加 is-leaving 让卡片上移淡出 */
   leaving: boolean;
+  /** 软翻页过渡：加 is-paging 让旧卡片淡出上移、新卡片从上方滑落进场 */
+  paging?: boolean;
   loading: boolean;
   error: boolean;
   onRetry: () => void;
   onOpen: (p: ApiPost) => void;
 }
 
-const PostCards = ({ posts, leaving, loading, error, onRetry, onOpen }: PostCardsProps) => {
-  const gridClass = "project-cards-grid" + (leaving ? " is-leaving" : "");
+const PostCards = ({ posts, leaving, paging = false, loading, error, onRetry, onOpen }: PostCardsProps) => {
+  const gridClass =
+    "project-cards-grid" + (leaving ? " is-leaving" : "") + (paging ? " is-paging" : "");
 
   if (loading) {
     return (

@@ -126,11 +126,14 @@ const PostModal = ({ post, onClose }: PostModalProps) => {
     return renderMarkdown(md);
   }, [p]);
 
-  /** 未登录点互动：提示 + 去登录（登录回来弹窗重开即可继续） */
+  /** 未登录点互动：提示 + 去登录。
+   *  带上文章 id —— 登录成功后 Login.tsx 会跳回 /showcase 并把 state 原样传回，
+   *  Showcase 读到 reopenPost 自动重开这篇的弹窗（用户可以直接继续评论）。 */
   const requireLogin = () => {
+    if (!p) return;
     toast.error("请先登录");
     onClose();
-    navigate("/login");
+    navigate("/login", { state: { reopenPost: p.id } });
   };
 
   const toggleLike = async () => {

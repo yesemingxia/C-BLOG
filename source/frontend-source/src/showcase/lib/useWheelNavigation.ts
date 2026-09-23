@@ -139,6 +139,12 @@ export function useWheelNavigation(api: SceneMachineApi | null): void {
         return;
       }
 
+      /* 场景 2 文章网格：**没有**专门的滚轮翻页 —— 网格本身是可滚动区
+         （showcase-posts.css 给桌面端也加了 max-height + overflow-y:auto），
+         上面的 findScrollable 会先让它一点点滚内容；滚到边界才轮到场景切换。
+         曾试过「网格内滚轮翻文章页」，但看文章时太容易误翻页，已移除 ——
+         翻文章页只走「上一页 / 下一页」按钮（带软翻页动画）。 */
+
       const now = Date.now();
       if (now - st.lastNav < CONFIG.wheelThrottle) return;
       if (Math.abs(d) < CONFIG.wheelThreshold) return;
