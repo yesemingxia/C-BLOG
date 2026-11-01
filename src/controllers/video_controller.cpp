@@ -1,11 +1,14 @@
 #include "controllers/video_controller.h"
 
+#include "dao/notification_dao.h"
 #include "dao/video_dao.h"
 #include "services/auth_service.h"
 #include "services/video_upload_service.h"
+#include "utils/http_range.h"
 #include "utils/logger.h"
 #include "utils/response.h"
 #include "utils/sanitize.h"
+#include "utils/storage.h"
 
 #include <boost/json.hpp>
 
@@ -17,8 +20,7 @@ namespace http = boost::beast::http;
 
 namespace {
 
-// @cuiruoni+视频存储目录（相对工作目录；uploads/ 已在 .gitignore 中）
-constexpr const char* kVideoDir = "uploads/videos";
+// @cuiruoni+视频目录由启动时定死的 storage 根派生（原来写死 "uploads/videos"，位置随进程工作目录漂移）
 
 // @cuiruoni+文件名白名单校验，防路径穿越（与图片上传同一套规则）
 bool is_safe_name(const std::string& name) {
@@ -40,6 +42,18 @@ http::response<http::string_body> make_error(const http::request<http::string_bo
     res.body() = response::error(static_cast<int>(code), msg);
     res.prepare_payload();
     return res;
+}
+
+// @cuiruoni+B12：审核结果通知投稿人（type=system，actor 为操作的管理员）
+void notify_review_result(const video_dao::VideoRow& row, const std::string& status,
+                          int64_t admin_id) {
+    if (row.uploader_id <= 0) return;
+    if (status != "approved" && status != "rejected") return;
+    std::string name = row.original_name.empty() ? row.filename : row.original_name;
+    std::string content = status == "approved"
+        ? "你的视频投稿《" + name + "》已通过审核"
+        : "你的视频投稿《" + name + "》未通过审核";
+    notification_dao::insert(row.uploader_id, "system", "", content, "", 0, admin_id);
 }
 
 // @cuiruoni+登录校验，失败时直接返回 401 响应
@@ -291,6 +305,10 @@ http::response<http::string_body> handle_set_status(
     if (status != "approved" && row.is_active) {
         video_dao::deactivate(id);
     }
+    // @cuiruoni+B12：状态真的变化时才通知，避免重复点“通过”刷通知
+    if (status != row.status) {
+        notify_review_result(row, status, admin_id);
+    }
 
     spdlog::info("[video] admin {} set submission {} -> {}", admin_id, id, status);
     json::object data;
@@ -341,6 +359,8 @@ http::response<http::string_body> handle_set_active(
         // @cuiruoni+启用前置条件：必须是 approved；还是 pending 就顺手通过
         if (row.status != "approved") {
             video_dao::set_status(id, "approved");
+            // @cuiruoni+B12：启用时的“顺手通过”也算一次审核结果
+            notify_review_result(row, "approved", admin_id);
         }
         if (!video_dao::set_active(id)) {
             return make_error(req, http::status::internal_server_error, "启用失败");
@@ -376,7 +396,8 @@ http::response<http::string_body> handle_admin_list(
     if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second);
     it = params.query.find("page_size");
     if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second);
-    if (page_size > 100) page_size = 100;
+    page = sanitize::clamp_page(page);
+    page_size = sanitize::clamp_page_size(page_size, 10);
 
     std::string status = "all";
     it = params.query.find("status");
@@ -423,7 +444,7 @@ http::response<http::string_body> handle_delete(
     if (!video_dao::delete_by_id(id)) {
         return make_error(req, http::status::internal_server_error, "删除失败");
     }
-    std::string path = std::string(kVideoDir) + "/" + row.filename;
+    std::string path = storage::videos() + "/" + row.filename;
     std::error_code ec;
     std::filesystem::remove(path, ec);
     if (ec) spdlog::warn("[video] file remove failed: {} ({})", path, ec.message());
@@ -435,39 +456,91 @@ http::response<http::string_body> handle_delete(
     return res;
 }
 
-// @cuiruoni+GET /api/videos/file/:name → 公开读取视频文件
-http::response<http::string_body> handle_get_file(
+std::string video_content_type(const std::string& name) {
+    if (name.size() > 4 && name.compare(name.size() - 4, 4, ".mp4") == 0) return "video/mp4";
+    if (name.size() > 5 && name.compare(name.size() - 5, 5, ".webm") == 0) return "video/webm";
+    return "application/octet-stream";
+}
+
+// @cuiruoni+B10：GET/HEAD /api/videos/file/:name
+// @cuiruoni+支持单段 Range（206 + Content-Range），文件按 64KB 分块流式发送，
+// @cuiruoni+不再把 50MB 视频整段读进内存；HEAD 返回与 GET 相同的头但没有 body。
+FileRouteResult handle_get_file(
     const http::request<http::string_body>& req, const RouteParams& params) {
+    FileRouteResult result;
+
     auto it = params.path.find("name");
     if (it == params.path.end()) {
-        return make_error(req, http::status::bad_request, "缺少文件名");
+        result.text = make_error(req, http::status::bad_request, "缺少文件名");
+        return result;
     }
 
     const std::string& name = it->second;
     if (!is_safe_name(name)) {
-        return make_error(req, http::status::bad_request, "非法文件名");
+        result.text = make_error(req, http::status::bad_request, "非法文件名");
+        return result;
     }
 
-    std::string path = std::string(kVideoDir) + "/" + name;
-    std::ifstream in(path, std::ios::binary);
-    if (!in) {
-        return make_error(req, http::status::not_found, "文件不存在");
-    }
-    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-
-    std::string content_type = "application/octet-stream";
-    if (name.size() > 4 && name.compare(name.size() - 4, 4, ".mp4") == 0) {
-        content_type = "video/mp4";
-    } else if (name.size() > 5 && name.compare(name.size() - 5, 5, ".webm") == 0) {
-        content_type = "video/webm";
+    const std::string path = storage::videos() + "/" + name;
+    std::error_code size_ec;
+    const std::uint64_t file_size = std::filesystem::file_size(path, size_ec);
+    if (size_ec) {
+        result.text = make_error(req, http::status::not_found, "文件不存在");
+        return result;
     }
 
-    http::response<http::string_body> res{http::status::ok, req.version()};
-    res.set(http::field::content_type, content_type);
-    res.set(http::field::cache_control, "public, max-age=86400");
-    res.body() = std::move(content);
-    res.prepare_payload();
-    return res;
+    const std::string content_type = video_content_type(name);
+    auto range_it = req.find(http::field::range);
+    http_range::ByteRange range = range_it != req.end()
+        ? http_range::parse(std::string(range_it->value()), file_size)
+        : http_range::ByteRange{};
+
+    if (range.present && !range.satisfiable) {
+        result.text = make_error(req, http::status::range_not_satisfiable, "请求范围超出文件大小");
+        result.text.set(http::field::content_range, "bytes */" + std::to_string(file_size));
+        result.text.set(http::field::accept_ranges, "bytes");
+        return result;
+    }
+
+    const std::uint64_t start = range.present ? range.start : 0;
+    const std::uint64_t end = range.present ? range.end : (file_size > 0 ? file_size - 1 : 0);
+    const std::uint64_t length = file_size == 0 ? 0 : end - start + 1;
+    const bool partial = range.present;
+    const bool head_only = req.method() == http::verb::head;
+
+    if (head_only) {
+        result.text = http::response<http::string_body>{
+            partial ? http::status::partial_content : http::status::ok, req.version()};
+        result.text.set(http::field::content_type, content_type);
+        result.text.set(http::field::cache_control, "public, max-age=86400");
+        result.text.set(http::field::accept_ranges, "bytes");
+        result.text.content_length(length);
+        if (partial) {
+            result.text.set(http::field::content_range,
+                "bytes " + std::to_string(start) + "-" + std::to_string(end) +
+                "/" + std::to_string(file_size));
+        }
+        return result;
+    }
+
+    result.file.version(req.version());
+    result.file.result(partial ? http::status::partial_content : http::status::ok);
+    result.file.set(http::field::content_type, content_type);
+    result.file.set(http::field::cache_control, "public, max-age=86400");
+    result.file.set(http::field::accept_ranges, "bytes");
+    if (partial) {
+        result.file.set(http::field::content_range,
+            "bytes " + std::to_string(start) + "-" + std::to_string(end) +
+            "/" + std::to_string(file_size));
+    }
+    boost::beast::error_code file_ec;
+    result.file.body().open(path, start, length, file_ec);
+    if (file_ec) {
+        result.text = make_error(req, http::status::internal_server_error, "读取视频失败");
+        return result;
+    }
+    result.is_file = true;
+    return result;
 }
 
 } // namespace
@@ -485,6 +558,8 @@ void register_video_routes(Router& router) {
     router.add_route("PUT", "/api/videos/:id/active", handle_set_active);
     router.add_route("GET", "/api/admin/videos", handle_admin_list);
     router.add_route("DELETE", "/api/videos/:id", handle_delete);
-    router.add_route("GET", "/api/videos/file/:name", handle_get_file);
+    // @cuiruoni+B10：文件路由走专门的流式响应通道（GET 全量/分段，HEAD 只返回头）
+    router.add_file_route("GET", "/api/videos/file/:name", handle_get_file);
+    router.add_file_route("HEAD", "/api/videos/file/:name", handle_get_file);
     spdlog::info("Video routes registered");
 }

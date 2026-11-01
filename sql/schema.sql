@@ -12,7 +12,9 @@ CREATE TABLE IF NOT EXISTS users (
     twitter VARCHAR(100) DEFAULT '',
     background VARCHAR(512) DEFAULT '',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    -- @cuiruoni+B2：邮箱唯一；空邮箱统一存 NULL（唯一索引对 NULL 不冲突）
+    UNIQUE KEY uq_users_email (email)
 );
 
 CREATE TABLE IF NOT EXISTS posts (
@@ -21,6 +23,8 @@ CREATE TABLE IF NOT EXISTS posts (
     content_md TEXT,
     content_html TEXT,
     summary VARCHAR(500),
+    cover VARCHAR(500) NOT NULL DEFAULT '',
+    visibility ENUM('public','members','private') NOT NULL DEFAULT 'public',
     user_id BIGINT NOT NULL,
     status ENUM('draft','published') DEFAULT 'draft',
     view_count INT DEFAULT 0,
@@ -76,6 +80,20 @@ CREATE TABLE IF NOT EXISTS contact_messages (
     email VARCHAR(100) NOT NULL,
     message TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- @cuiruoni+视频投稿：用户上传、管理员审核后启用唯一一支作为主页背景
+CREATE TABLE IF NOT EXISTS video_submissions (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    uploader_id BIGINT NOT NULL,
+    filename VARCHAR(255) NOT NULL,
+    original_name VARCHAR(255),
+    status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+    is_active TINYINT(1) NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    reviewed_at DATETIME NULL,
+    INDEX idx_video_status(status),
+    FOREIGN KEY (uploader_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- @cuiruoni+P1修复：点赞/收藏/关注表（版本化迁移由 database.cpp 保证幂等）

@@ -51,8 +51,12 @@ std::string generate_token(int64_t user_id, const std::string& username, const s
     // @cuiruoni+每个token携带唯一jti：JWT只有秒级iat、payload相同时同一秒内重复签发
     // @cuiruoni+会得到完全相同的token —— 若旧的那份已被登出拉黑，"登出后立即重新登录"
     // @cuiruoni+拿到的新会话会天生处于黑名单状态。加jti让每次签发独一无二。
-    static std::mt19937_64 gen{std::random_device{}()};
-    static std::uniform_int_distribution<unsigned long long> dist;
+    // @cuiruoni+thread_local：多线程服务里函数级 static 是所有 IO 线程共用的，
+    // @cuiruoni+mt19937_64 与 uniform_int_distribution 的 operator() 都会改写自身状态，
+    // @cuiruoni+并发签发就是数据竞争（UB）；真吐出重复值时两条会话共用同一个 jti，
+    // @cuiruoni+其中一人登出拉黑，另一个人的 token 也一起失效。
+    thread_local std::mt19937_64 gen{std::random_device{}()};
+    thread_local std::uniform_int_distribution<unsigned long long> dist;
     const std::string jti =
         std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count()) +
@@ -133,40 +137,58 @@ bool extract_admin_from_token(const http::request<http::string_body>& req,
     return role == "admin";
 }
 
-// @cuiruoni+记录登录失败次数，5次失败后锁定账号30分钟
-void record_login_failure(const std::string& username) {
-    auto ctx = RedisPool::instance().acquire();
-    if (!ctx) return;
+namespace {
 
-    std::string key = "login_fail:" + username;
-    redisReply* reply = (redisReply*)redisCommand(ctx.get(), "INCR %s", key.c_str());
-    long long count = 0;
-    if (reply) {
-        count = reply->integer;
-        freeReplyObject(reply);
-    }
+// @cuiruoni+登录失败的两层阈值与窗口。
+// @cuiruoni+第一层按「用户名 + 客户端 IP」：同一个来源把这个账号试错 5 次就锁 30 分钟，强度同改动前。
+// @cuiruoni+第二层按「用户名」：不分来源，30 分钟累计 20 次失败也锁。
+// @cuiruoni+为什么要拆成两层：原先只有按用户名的 5 次锁定，等于任何人对 admin 连错 5 次，
+// @cuiruoni+就能把真管理员挡在门外 30 分钟（不需要密码，纯粹的 DoS）；
+// @cuiruoni+但只按 IP 又会漏掉「换 IP 慢速撞同一个账号」，所以账号层保留、阈值抬高到 4 倍。
+constexpr int kFailWindowSeconds = 1800;
+constexpr int kMaxFailsPerIp = 5;
+constexpr int kMaxFailsPerAccount = 20;
 
-    // @cuiruoni+首次失败时设置30分钟窗口
-    if (count == 1) {
-        redisReply* expire_reply = (redisReply*)redisCommand(ctx.get(), "EXPIRE %s %d", key.c_str(), 1800);
-        if (expire_reply) freeReplyObject(expire_reply);
+// @cuiruoni+redisCommand 是按空白切参数的单行文本，用户名是登录入口的自由输入，
+// @cuiruoni+里面混进空格/换行会把一条命令劈出多余参数（arity 报错 → 返回 null → 计数静默丢失，
+// @cuiruoni+看起来有锁定实际完全不生效）。键的组成部分一律按白名单过滤。
+std::string key_part(std::string value, size_t max_len) {
+    if (value.size() > max_len) value.resize(max_len);
+    for (char& c : value) {
+        bool keep = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                    || c == '_' || c == '-' || c == '.' || c == '@' || c == ':';
+        if (!keep) c = '_';
     }
-
-    // @cuiruoni+达到5次失败后锁定30分钟（保持key的TTL）
-    if (count >= 5) {
-        spdlog::warn("Account locked due to too many login failures: {}", username);
-    }
+    return value;
 }
 
-// @cuiruoni+检查账号是否被锁定（登录失败次数>=5），返回true表示被锁定
-bool is_account_locked(const std::string& username) {
-    auto ctx = RedisPool::instance().acquire();
-    if (!ctx) return false;
+std::string per_ip_key(const std::string& username, const std::string& client_ip) {
+    return "login_fail:" + key_part(client_ip, 64) + ":" + key_part(username, 64);
+}
 
-    std::string key = "login_fail:" + username;
-    redisReply* reply = (redisReply*)redisCommand(ctx.get(), "GET %s", key.c_str());
-    if (!reply) return false;
+std::string per_account_key(const std::string& username) {
+    return "login_fail_all:" + key_part(username, 64);
+}
 
+// @cuiruoni+计数 +1，INCR 返回 1 说明键是新建的、还没有过期时间，此时补 TTL
+long long incr_with_window(redisContext* ctx, const std::string& key) {
+    redisReply* reply = (redisReply*)redisCommand(ctx, "INCR %s", key.c_str());
+    long long count = 0;
+    if (reply) {
+        if (reply->type == REDIS_REPLY_INTEGER) count = reply->integer;
+        freeReplyObject(reply);
+    }
+    if (count == 1) {
+        redisReply* expire_reply =
+            (redisReply*)redisCommand(ctx, "EXPIRE %s %d", key.c_str(), kFailWindowSeconds);
+        if (expire_reply) freeReplyObject(expire_reply);
+    }
+    return count;
+}
+
+long long read_count(redisContext* ctx, const std::string& key) {
+    redisReply* reply = (redisReply*)redisCommand(ctx, "GET %s", key.c_str());
+    if (!reply) return 0;
     long long count = 0;
     if (reply->type == REDIS_REPLY_INTEGER) {
         count = reply->integer;
@@ -174,17 +196,46 @@ bool is_account_locked(const std::string& username) {
         try { count = std::stoll(reply->str); } catch (...) {}
     }
     freeReplyObject(reply);
-
-    return count >= 5;
+    return count;
 }
 
-// @cuiruoni+登录成功后清除失败计数
-void clear_login_failures(const std::string& username) {
+} // namespace
+
+// @cuiruoni+记录一次登录失败（两层计数各自 +1）
+void record_login_failure(const std::string& username, const std::string& client_ip) {
+    auto ctx = RedisPool::instance().acquire();
+    if (!ctx) return;  // @cuiruoni+Redis 不可用时锁定不生效，与改动前一致（登录本身仍受密码校验保护）
+
+    long long per_ip = incr_with_window(ctx.get(), per_ip_key(username, client_ip));
+    long long per_account = incr_with_window(ctx.get(), per_account_key(username));
+
+    if (per_ip >= kMaxFailsPerIp) {
+        spdlog::warn("Login locked (per source): user={} ip={} fails={}", username, client_ip, per_ip);
+    } else if (per_account >= kMaxFailsPerAccount) {
+        spdlog::warn("Login locked (account total {}): user={} —— 多来源累计，可能是分布式撞库",
+                     kMaxFailsPerAccount, username);
+    }
+}
+
+// @cuiruoni+任一层达到阈值即视为锁定
+bool is_account_locked(const std::string& username, const std::string& client_ip) {
+    auto ctx = RedisPool::instance().acquire();
+    if (!ctx) return false;
+
+    if (read_count(ctx.get(), per_ip_key(username, client_ip)) >= kMaxFailsPerIp) return true;
+    return read_count(ctx.get(), per_account_key(username)) >= kMaxFailsPerAccount;
+}
+
+// @cuiruoni+登录成功后清掉本来源的计数与账号累计数
+// @cuiruoni+（其它 IP 的键不扫是为了避开 KEYS；它们自带 30 分钟 TTL，会自己过期）
+void clear_login_failures(const std::string& username, const std::string& client_ip) {
     auto ctx = RedisPool::instance().acquire();
     if (!ctx) return;
 
-    std::string key = "login_fail:" + username;
-    redisReply* reply = (redisReply*)redisCommand(ctx.get(), "DEL %s", key.c_str());
+    const std::string ip_key = per_ip_key(username, client_ip);
+    const std::string account_key = per_account_key(username);
+    redisReply* reply = (redisReply*)redisCommand(ctx.get(), "DEL %s %s",
+                                                  ip_key.c_str(), account_key.c_str());
     if (reply) freeReplyObject(reply);
 }
 

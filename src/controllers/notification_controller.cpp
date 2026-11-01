@@ -24,10 +24,31 @@ static http::response<http::string_body> handle_list_notifications(
     }
 
     try {
-        json::array arr = notification_dao::list_by_user_id(user_id);
+        // @cuiruoni+B12：分页 + 跨页未读总数（角标不能只数当前页）
+        int page = 1, page_size = 20;
+        auto page_it = params.query.find("page");
+        if (page_it != params.query.end() && !page_it->second.empty()) {
+            page = sanitize::safe_stoi(page_it->second, 1);
+        }
+        auto size_it = params.query.find("page_size");
+        if (size_it != params.query.end() && !size_it->second.empty()) {
+            page_size = sanitize::safe_stoi(size_it->second, 20);
+        }
+        page = sanitize::clamp_page(page);
+        page_size = sanitize::clamp_page_size(page_size, 20);
+
+        int total = 0;
+        json::array arr = notification_dao::list_by_user_id(user_id, page, page_size, total);
+
+        json::object data;
+        data["notifications"] = std::move(arr);
+        data["total"] = total;
+        data["page"] = page;
+        data["page_size"] = page_size;
+        data["unread_count"] = notification_dao::count_unread(user_id);
 
         http::response<http::string_body> res{http::status::ok, req.version()};
-        res.body() = response::success(arr);
+        res.body() = response::success(json::value(std::move(data)));
         res.prepare_payload();
         return res;
     } catch (const std::exception& e) {

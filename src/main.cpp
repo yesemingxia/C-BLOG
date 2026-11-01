@@ -1,5 +1,6 @@
 #include "utils/logger.h"
 #include "utils/config.h"
+#include "utils/storage.h"
 #include "db/mysql_pool.h"
 #include "db/redis_pool.h"
 #include "db/database.h"
@@ -16,6 +17,7 @@
 #include "controllers/upload_controller.h"
 #include "controllers/video_controller.h"
 #include "middleware/auth_middleware.h"
+#include "services/video_upload_service.h"
 
 #include <boost/beast/http.hpp>
 #include <boost/program_options.hpp>
@@ -65,6 +67,25 @@ int main(int argc, char* argv[]) {
 
         spdlog::info("cpp-blog starting...");
         spdlog::info("Config loaded from: {}", config_path);
+
+        // @cuiruoni+安全：客户端 IP 的口径直接决定限流和浏览量去重能不能被伪造头绕过，
+        // @cuiruoni+开与不开都要留一行日志，方便运维核对当前暴露方式
+        if (cfg.trust_proxy_real_ip()) {
+            spdlog::warn("trust_proxy_real_ip=true：按 X-Real-IP 认定客户端。"
+                         "仅在代理用 $remote_addr 覆写该头、且本端口不直接对外暴露时才应开启");
+        } else {
+            spdlog::info("客户端 IP 取 TCP 对端地址（X-Real-IP / X-Client-IP 请求头不参与判定）");
+        }
+
+        // @cuiruoni+落盘资源根目录在启动时定死一次：相对配置值按「配置文件所属项目根」解析，
+        // @cuiruoni+这样从 build/Release（start.bat 的方式）还是仓库根启动都指向同一个 uploads
+        storage::init(config_path, cfg.storage_root());
+        spdlog::info("Storage root: {}（工作目录: {}）", storage::root(),
+                     [] {
+                         std::error_code ec;
+                         auto current = std::filesystem::current_path(ec);
+                         return ec ? std::string("unknown") : current.string();
+                     }());
 
         // @cuiruoni+初始化MySQL连接池，使用X DevAPI协议（端口33060）
         MysqlPool::instance().init(
@@ -123,6 +144,19 @@ int main(int argc, char* argv[]) {
 
         spdlog::info("Server running on http://{}:{}", cfg.server_host(), cfg.server_port());
 
+        // @cuiruoni+B11：定时清理过期上传会话与 .part 文件。
+        // @cuiruoni+原先 prune_expired 没有调用方，长时间无上传时磁盘会一直占着。
+        std::thread video_prune_thread([]() {
+            int ticks = 0;
+            while (!g_shutdown) {
+                std::this_thread::sleep_for(std::chrono::seconds(5));
+                if (++ticks >= 12) {
+                    ticks = 0;
+                    video_upload_service::prune_expired();
+                }
+            }
+        });
+
         // @cuiruoni+在独立线程中运行服务器
         std::thread server_thread([&server]() {
             server.run();
@@ -134,6 +168,7 @@ int main(int argc, char* argv[]) {
         }
         server.stop();
         server_thread.join();
+        video_prune_thread.join();
 
         // @cuiruoni+服务器停止后释放所有连接池资源
         MysqlPool::instance().close();

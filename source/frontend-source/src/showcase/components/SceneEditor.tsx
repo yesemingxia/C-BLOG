@@ -202,7 +202,8 @@ const SceneEditor = ({ portalRoot, onPublished, onPublishPanelToggle }: SceneEdi
         setContent(post.content_md || "");
         setSelectedTags(post.tags ?? []);
         setSummary(post.summary ?? "");
-        setVisibility(post.status === "draft" ? "draft" : "public");
+        // @cuiruoni+A2：可见性由后端字段回填；旧数据/旧后端缺少该字段时按 public 处理
+        setVisibility(post.visibility ?? "public");
         if (post.cover) setCoverUrl(post.cover);
       })
       .catch(() => toast.error("加载文章失败"));
@@ -351,7 +352,8 @@ const SceneEditor = ({ portalRoot, onPublished, onPublishPanelToggle }: SceneEdi
         status,
         tags: selectedTags,
         visibility,
-        cover: coverUrl || undefined,
+        // @cuiruoni+A1：显式发送空串，后端才能区分“清空封面”和“字段缺省”
+        cover: coverUrl,
       };
       return editId ? await postsApi.update(editId, data) : await postsApi.create(data);
     } catch {

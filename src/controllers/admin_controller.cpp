@@ -4,15 +4,41 @@
 #include "dao/post_dao.h"
 #include "dao/comment_dao.h"
 #include "dao/contact_dao.h"
+#include "dao/video_dao.h"
 #include "services/auth_service.h"
+#include "services/post_service.h"
+#include "services/search_service.h"
 #include "utils/logger.h"
 #include "utils/response.h"
 #include "utils/sanitize.h"
+#include "utils/storage.h"
 
 #include <boost/json.hpp>
+#include <filesystem>
 
 namespace json = boost::json;
 namespace http = boost::beast::http;
+
+namespace {
+
+// @cuiruoni+B6：后台搜索词统一消毒/截断，空串表示不过滤
+std::string query_text(const RouteParams& params, const char* key) {
+    auto it = params.query.find(key);
+    if (it == params.query.end()) return "";
+    return sanitize::truncate(sanitize::clean_text(it->second), 100);
+}
+
+std::string query_sort(const RouteParams& params) {
+    auto it = params.query.find("sort");
+    return it != params.query.end() ? it->second : "created_at";
+}
+
+std::string query_order(const RouteParams& params) {
+    auto it = params.query.find("order");
+    return it != params.query.end() ? it->second : "desc";
+}
+
+} // namespace
 
 // @cuiruoni+管理员仪表盘统计：返回用户数、文章数、评论数、已发布/草稿文章数
 static http::response<http::string_body> handle_admin_stats(
@@ -54,6 +80,44 @@ static http::response<http::string_body> handle_admin_stats(
     }
 }
 
+// @cuiruoni+B8：近 N 个月文章发布趋势（默认 12 个月，空月份补 0）
+static http::response<http::string_body> handle_admin_stats_trend(
+    const http::request<http::string_body>& req, const RouteParams& params) {
+    int64_t admin_id = 0;
+    std::string username, role;
+    if (!auth_service::extract_admin_from_token(req, admin_id, username, role)) {
+        http::response<http::string_body> res{http::status::forbidden, req.version()};
+        res.body() = response::error(403, "Admin access required");
+        res.prepare_payload();
+        return res;
+    }
+
+    int months = 12;
+    auto it = params.query.find("months");
+    if (it != params.query.end() && !it->second.empty()) {
+        months = sanitize::safe_stoi(it->second, 12);
+    }
+    months = sanitize::clamp_int(months, 1, 24);
+
+    try {
+        json::array points = post_dao::count_monthly_published(months);
+        json::object data;
+        data["months"] = months;
+        data["points"] = std::move(points);
+
+        http::response<http::string_body> res{http::status::ok, req.version()};
+        res.body() = response::success(json::value(std::move(data)));
+        res.prepare_payload();
+        return res;
+    } catch (const std::exception& e) {
+        spdlog::error("Admin stats trend error: {}", e.what());
+        http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+        res.body() = response::error(500, "Internal server error");
+        res.prepare_payload();
+        return res;
+    }
+}
+
 // @cuiruoni+管理员查看所有用户列表，支持分页，不返回password_hash和salt
 static http::response<http::string_body> handle_admin_list_users(
     const http::request<http::string_body>& req, const RouteParams& params) {
@@ -72,15 +136,17 @@ static http::response<http::string_body> handle_admin_list_users(
     if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second);
     it = params.query.find("page_size");
     if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second);
-    if (page_size > 100) page_size = 100; // @cuiruoni+限制page_size上限
+    page = sanitize::clamp_page(page);
+    page_size = sanitize::clamp_page_size(page_size, 10);
 
     try {
         int total = 0;
-        // @cuiruoni+只返回安全字段，排除password_hash和salt
-        json::array arr = user_dao::list_users(page, page_size, total);
+        // @cuiruoni+B6/B7：q 为服务端搜索，sort/order 由 DAO 白名单映射
+        json::array arr = user_dao::list_users(page, page_size, total,
+            query_text(params, "q"), query_sort(params), query_order(params));
 
-            json::object data;
-        data["users"] = arr;
+        json::object data;
+        data["users"] = std::move(arr);
         data["total"] = total;
         data["page"] = page;
         data["page_size"] = page_size;
@@ -148,8 +214,17 @@ static http::response<http::string_body> handle_admin_change_user_role(
             return res;
         }
 
-        user_dao::update_role(target_id, new_role);
-            http::response<http::string_body> res{http::status::ok, req.version()};
+        // @cuiruoni+原来忽略返回值：写库失败时前端已经把角色渲染成「管理员」，
+        // @cuiruoni+刷新后又变回「普通用户」，看起来像权限设置莫名其妙丢了。失败直接 500。
+        if (!user_dao::update_role(target_id, new_role)) {
+            spdlog::error("Admin update role failed at DAO layer, target_id={}", target_id);
+            http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+            res.body() = response::error(500, "Failed to update user role");
+            res.prepare_payload();
+            return res;
+        }
+
+        http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(std::string("User role updated"));
         res.prepare_payload();
         return res;
@@ -201,9 +276,43 @@ static http::response<http::string_body> handle_admin_delete_user(
             return res;
         }
 
-        // @cuiruoni+删除用户，依赖数据库外键ON DELETE CASCADE级联删除posts和comments
-        user_dao::delete_by_id(target_id);
-            http::response<http::string_body> res{http::status::ok, req.version()};
+        // @cuiruoni+B13：级联删库不会删磁盘文件，先取投稿文件名，删库成功后再清文件
+        std::vector<std::string> video_files = video_dao::list_filenames_by_uploader(target_id);
+
+        // @cuiruoni+B1 残留（图片侧同一件事）：封面、正文里嵌的图、头像也只在数据库里，
+        // @cuiruoni+删库不会带走文件，而 /api/upload/file/:name 是公开的 ——
+        // @cuiruoni+人删了图还在，等于把他的私有图片永久挂在公网可取的位置。
+        // @cuiruoni+这里先把文本取全，删库成功后交给 reclaim_images 逐张判「还有谁在用」。
+        std::vector<std::string> media_texts = post_dao::list_media_texts(0, target_id);
+        {
+            json::object profile = user_dao::find_profile_by_id(target_id);
+            auto avatar_it = profile.find("avatar");
+            if (avatar_it != profile.end() && avatar_it->value().is_string()) {
+                media_texts.push_back(std::string(avatar_it->value().as_string()));
+            }
+        }
+
+        // @cuiruoni+删除用户；若库中外键确实级联，会连带删除其文章，搜索缓存需同步失效。
+        // @cuiruoni+删除失败必须返回 500 —— 原实现忽略 DAO 返回值，外键不级联时会“假成功”。
+        if (!user_dao::delete_by_id(target_id)) {
+            http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+            res.body() = response::error(500, "Failed to delete user");
+            res.prepare_payload();
+            return res;
+        }
+        // @cuiruoni+库已经删干净了才动磁盘：此时其它文章/头像若还在引用同一张图，
+        // @cuiruoni+引用计数仍 > 0，reclaim 会自动跳过
+        post_service::reclaim_images(media_texts);
+        std::error_code file_ec;
+        for (const auto& name : video_files) {
+            std::filesystem::remove(storage::videos() + "/" + name, file_ec);
+            if (file_ec) {
+                spdlog::warn("Failed to remove video file {}: {}", name, file_ec.message());
+                file_ec.clear();
+            }
+        }
+        search_service::invalidate_cache();
+        http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(std::string("User deleted"));
         res.prepare_payload();
         return res;
@@ -235,7 +344,8 @@ static http::response<http::string_body> handle_admin_list_posts(
     if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second);
     it = params.query.find("page_size");
     if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second);
-    if (page_size > 100) page_size = 100; // @cuiruoni+限制page_size上限
+    page = sanitize::clamp_page(page);
+    page_size = sanitize::clamp_page_size(page_size, 10);
     it = params.query.find("status");
     if (it != params.query.end()) {
         const auto& s = it->second;
@@ -246,11 +356,12 @@ static http::response<http::string_body> handle_admin_list_posts(
 
     try {
         int total = 0;
-        // @cuiruoni+根据status参数决定是否添加WHERE条件
-        json::array arr = post_dao::admin_list_posts(page, page_size, status, total);
+        // @cuiruoni+B6/B7：服务端搜索 + 白名单排序
+        json::array arr = post_dao::admin_list_posts(page, page_size, status, total,
+            query_text(params, "q"), query_sort(params), query_order(params));
 
-            json::object data;
-        data["posts"] = arr;
+        json::object data;
+        data["posts"] = std::move(arr);
         data["total"] = total;
         data["page"] = page;
         data["page_size"] = page_size;
@@ -299,8 +410,13 @@ static http::response<http::string_body> handle_admin_delete_post(
             return res;
         }
 
-        // @cuiruoni+管理员可直接删除任意文章，无需检查所有权
-        post_dao::delete_by_id(post_id);
+        // @cuiruoni+管理员可直接删除任意文章；走 service 以保证搜索缓存同步失效
+        if (!post_service::delete_post(post_id)) {
+            http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+            res.body() = response::error(500, "Failed to delete post");
+            res.prepare_payload();
+            return res;
+        }
             http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(std::string("Post deleted"));
         res.prepare_payload();
@@ -332,15 +448,17 @@ static http::response<http::string_body> handle_admin_list_comments(
     if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second);
     it = params.query.find("page_size");
     if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second);
-    if (page_size > 100) page_size = 100; // @cuiruoni+限制page_size上限
+    page = sanitize::clamp_page(page);
+    page_size = sanitize::clamp_page_size(page_size, 10);
 
     try {
         int total = 0;
-        // @cuiruoni+关联查询评论及其所属文章标题，方便管理员定位
-        json::array arr = comment_dao::admin_list_comments(page, page_size, total);
+        // @cuiruoni+B6/B7：服务端搜索（内容/作者/文章标题）+ 白名单排序
+        json::array arr = comment_dao::admin_list_comments(page, page_size, total,
+            query_text(params, "q"), query_sort(params), query_order(params));
 
-            json::object data;
-        data["comments"] = arr;
+        json::object data;
+        data["comments"] = std::move(arr);
         data["total"] = total;
         data["page"] = page;
         data["page_size"] = page_size;
@@ -420,14 +538,17 @@ static http::response<http::string_body> handle_admin_list_contacts(
     if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second);
     it = params.query.find("page_size");
     if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second);
-    if (page_size > 100) page_size = 100;
+    page = sanitize::clamp_page(page);
+    page_size = sanitize::clamp_page_size(page_size, 10);
 
     try {
         int total = 0;
-        json::array arr = contact_dao::list(page, page_size, total);
+        // @cuiruoni+B6/B7：服务端搜索（姓名/邮箱/内容）+ 白名单排序
+        json::array arr = contact_dao::list(page, page_size, total,
+            query_text(params, "q"), query_sort(params), query_order(params));
 
         json::object data;
-        data["contacts"] = arr;
+        data["contacts"] = std::move(arr);
         data["total"] = total;
         data["page"] = page;
         data["page_size"] = page_size;
@@ -492,6 +613,7 @@ static http::response<http::string_body> handle_admin_delete_contact(
 // @cuiruoni+注册管理员API路由，所有路由在handler内部通过extract_admin_from_token检查权限
 void register_admin_routes(Router& router) {
     router.add_route("GET", "/api/admin/stats", handle_admin_stats);
+    router.add_route("GET", "/api/admin/stats/trend", handle_admin_stats_trend);
     router.add_route("GET", "/api/admin/users", handle_admin_list_users);
     router.add_route("PUT", "/api/admin/users/:id/role", handle_admin_change_user_role);
     router.add_route("DELETE", "/api/admin/users/:id", handle_admin_delete_user);

@@ -40,6 +40,9 @@ const TABS = [
 
 type TabKey = (typeof TABS)[number]["key"];
 
+// @cuiruoni+B12：通知按页拉取，每页 20 条
+const NOTIF_PAGE_SIZE = 20;
+
 /* ---------------- 通用小组件 ---------------- */
 
 const Field = ({
@@ -97,12 +100,17 @@ const ProfileCenter = () => {
   const [newPwd, setNewPwd] = useState("");
   const [newPwd2, setNewPwd2] = useState("");
   const [savingPwd, setSavingPwd] = useState(false);
+  const [deletePwd, setDeletePwd] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   /* ---- 我的文章 / 点赞收藏 / 通知 ---- */
   const [myPosts, setMyPosts] = useState<ApiPost[]>([]);
   const [liked, setLiked] = useState<ApiPost[]>([]);
   const [bookmarked, setBookmarked] = useState<ApiPost[]>([]);
   const [notifications, setNotifications] = useState<ApiNotification[]>([]);
+  const [notifTotal, setNotifTotal] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loadingMoreNotifs, setLoadingMoreNotifs] = useState(false);
   const [loadingLists, setLoadingLists] = useState(false);
 
   /* ---- 投稿视频（断点续传）---- */
@@ -156,13 +164,33 @@ const ProfileCenter = () => {
   const loadNotifications = useCallback(async () => {
     setLoadingLists(true);
     try {
-      setNotifications(await notificationsApi.list());
+      // @cuiruoni+B12：首屏 20 条，未读角标用后端跨页统计的 unread_count
+      const res = await notificationsApi.list(1, NOTIF_PAGE_SIZE);
+      setNotifications(res.notifications);
+      setNotifTotal(res.total);
+      setUnreadCount(res.unreadCount);
     } catch {
       toast.error("加载通知失败");
     } finally {
       setLoadingLists(false);
     }
   }, []);
+
+  const loadMoreNotifications = async () => {
+    if (loadingMoreNotifs) return;
+    setLoadingMoreNotifs(true);
+    try {
+      const nextPage = Math.floor(notifications.length / NOTIF_PAGE_SIZE) + 1;
+      const res = await notificationsApi.list(nextPage, NOTIF_PAGE_SIZE);
+      setNotifications((prev) => [...prev, ...res.notifications]);
+      setNotifTotal(res.total);
+      setUnreadCount(res.unreadCount);
+    } catch {
+      toast.error("加载更多通知失败");
+    } finally {
+      setLoadingMoreNotifs(false);
+    }
+  };
 
   const loadVideos = useCallback(async () => {
     setLoadingLists(true);
@@ -212,8 +240,7 @@ const ProfileCenter = () => {
   };
 
   /* ---- 头像上传：复用 /api/upload/image，成功后回填并保存 ---- */
-  /** @cuiruoni+后端 update_profile 是整行覆盖：缺失字段会写成空串。
-      所以无论改哪一项，都必须把 email/头像/资料**全量**提交。 */
+  /** @cuiruoni+B3：后端已改为部分更新，这里仍提交完整字段，保持行为最直观。 */
   const buildProfilePayload = (avatar: string) => ({
     email: profile?.email ?? "",
     bio,
@@ -276,6 +303,26 @@ const ProfileCenter = () => {
     }
   };
 
+  /** B13：注销账号（密码二次确认；管理员账号后端会拒绝） */
+  const handleDeleteAccount = async () => {
+    if (!deletePwd) {
+      toast.error("请输入当前密码确认");
+      return;
+    }
+    if (!window.confirm("注销后账号、文章、评论等数据将永久删除，确定继续吗？")) return;
+    setDeletingAccount(true);
+    try {
+      await profileApi.deleteAccount(deletePwd);
+      toast.success("账号已注销");
+      await logout();
+      navigate("/login");
+    } catch {
+      toast.error("注销失败，请检查密码");
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
   const handleDeletePost = async (id: number) => {
     if (!window.confirm("确定要删除这篇文章吗？此操作不可恢复。")) return;
     try {
@@ -291,6 +338,7 @@ const ProfileCenter = () => {
     try {
       await notificationsApi.markAllRead();
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+      setUnreadCount(0);
     } catch {
       toast.error("操作失败");
     }
@@ -299,7 +347,10 @@ const ProfileCenter = () => {
   const handleMarkRead = async (id: number) => {
     try {
       await notificationsApi.markRead(id);
+      const target = notifications.find((n) => n.id === id);
       setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
+      // @cuiruoni+B12：未读数是后端跨页统计的，本地标记已读要同步减一
+      if (target && !target.is_read) setUnreadCount((c) => Math.max(0, c - 1));
     } catch {
       toast.error("操作失败");
     }
@@ -308,13 +359,26 @@ const ProfileCenter = () => {
   const handleDeleteNotification = async (id: number) => {
     try {
       await notificationsApi.delete(id);
+      const target = notifications.find((n) => n.id === id);
       setNotifications((prev) => prev.filter((n) => n.id !== id));
+      setNotifTotal((t) => Math.max(0, t - 1));
+      if (target && !target.is_read) setUnreadCount((c) => Math.max(0, c - 1));
     } catch {
       toast.error("删除失败");
     }
   };
 
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
+  /** B12：通知带 post_id 时可直接打开对应文章；顺手标记已读 */
+  const openNotificationPost = async (n: ApiNotification) => {
+    if (!n.post_id) return;
+    if (!n.is_read) {
+      try {
+        await notificationsApi.markRead(n.id);
+        setNotifications((prev) => prev.map((item) => (item.id === n.id ? { ...item, is_read: true } : item)));
+      } catch { /* 跳转优先，已读失败不阻塞 */ }
+    }
+    navigate("/showcase", { state: { reopenPost: n.post_id } });
+  };
 
   const avatarBlock = (
     <div className="flex items-center gap-4">
@@ -482,25 +546,54 @@ const ProfileCenter = () => {
             </div>
           )}
 
-          {/* ---------- 修改密码 ---------- */}
+          {/* ---------- 修改密码 / 注销账号 ---------- */}
           {tab === "password" && (
-            <div className="max-w-md space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 sm:p-6">
-              <Field label="旧密码">
-                <input type="password" className={inputCls} value={oldPwd} onChange={(e) => setOldPwd(e.target.value)} placeholder="••••••••" />
-              </Field>
-              <Field label="新密码（至少 6 位）">
-                <input type="password" className={inputCls} value={newPwd} onChange={(e) => setNewPwd(e.target.value)} placeholder="••••••••" />
-              </Field>
-              <Field label="确认新密码">
-                <input type="password" className={inputCls} value={newPwd2} onChange={(e) => setNewPwd2(e.target.value)} placeholder="••••••••" />
-              </Field>
-              <button
-                onClick={handleChangePwd}
-                disabled={savingPwd || !oldPwd || !newPwd}
-                className="rounded-xl bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                {savingPwd ? "提交中…" : "修改密码"}
-              </button>
+            <div className="max-w-md space-y-4">
+              <div className="space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 sm:p-6">
+                <Field label="旧密码">
+                  <input type="password" className={inputCls} value={oldPwd} onChange={(e) => setOldPwd(e.target.value)} placeholder="••••••••" />
+                </Field>
+                <Field label="新密码（至少 6 位）">
+                  <input type="password" className={inputCls} value={newPwd} onChange={(e) => setNewPwd(e.target.value)} placeholder="••••••••" />
+                </Field>
+                <Field label="确认新密码">
+                  <input type="password" className={inputCls} value={newPwd2} onChange={(e) => setNewPwd2(e.target.value)} placeholder="••••••••" />
+                </Field>
+                <button
+                  onClick={handleChangePwd}
+                  disabled={savingPwd || !oldPwd || !newPwd}
+                  className="rounded-xl bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {savingPwd ? "提交中…" : "修改密码"}
+                </button>
+              </div>
+
+              {/* @cuiruoni+B13：危险操作区 —— 需输入密码二次确认 */}
+              <div className="space-y-3 rounded-2xl border border-[var(--destructive)]/30 bg-[var(--card)] p-5 sm:p-6">
+                <h3 className="flex items-center gap-2 text-sm font-bold text-[var(--destructive)]">
+                  <Trash2 size={15} /> 注销账号
+                </h3>
+                <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
+                  注销后账号、文章、评论、点赞收藏与投稿记录都会被删除，此操作不可恢复。
+                  管理员账号请先转让权限后由其他管理员删除。
+                </p>
+                <Field label="输入当前密码确认">
+                  <input
+                    type="password"
+                    className={inputCls}
+                    value={deletePwd}
+                    onChange={(e) => setDeletePwd(e.target.value)}
+                    placeholder="••••••••"
+                  />
+                </Field>
+                <button
+                  onClick={handleDeleteAccount}
+                  disabled={deletingAccount || !deletePwd}
+                  className="rounded-xl bg-[var(--destructive)] px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {deletingAccount ? "注销中…" : "永久注销账号"}
+                </button>
+              </div>
             </div>
           )}
 
@@ -641,7 +734,7 @@ const ProfileCenter = () => {
                   <Check size={13} /> 全部已读
                 </button>
               </div>
-              {notifications.length === 0 && (
+              {notifications.length === 0 && !loadingLists && (
                 <p className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-8 text-center text-sm text-[var(--muted-foreground)]">
                   暂无通知
                 </p>
@@ -658,7 +751,9 @@ const ProfileCenter = () => {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-sm text-[var(--foreground)]">
-                        <span className="font-semibold">{n.actor_name}</span>{" "}
+                        <span className="font-semibold">
+                          {n.type === "system" ? "系统" : (n.actor_name || "系统")}
+                        </span>{" "}
                         {n.content}
                         {n.post_title && <span className="text-[var(--muted-foreground)]">《{n.post_title}》</span>}
                       </p>
@@ -667,6 +762,11 @@ const ProfileCenter = () => {
                       </p>
                     </div>
                     <div className="flex flex-shrink-0 items-center gap-2">
+                      {!!n.post_id && (
+                        <button className={iconBtn} onClick={() => openNotificationPost(n)}>
+                          <Eye size={12} /> 查看文章
+                        </button>
+                      )}
                       {!n.is_read && (
                         <button className={iconBtn} onClick={() => handleMarkRead(n.id)}>
                           <Check size={12} /> 已读
@@ -683,6 +783,16 @@ const ProfileCenter = () => {
                   </div>
                 </div>
               ))}
+
+              {notifications.length > 0 && notifications.length < notifTotal && (
+                <button
+                  onClick={loadMoreNotifications}
+                  disabled={loadingMoreNotifs}
+                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--muted)]/40 px-4 py-2.5 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-50"
+                >
+                  {loadingMoreNotifs ? "加载中…" : `加载更多（还有 ${notifTotal - notifications.length} 条）`}
+                </button>
+              )}
             </div>
           )}
         </div>

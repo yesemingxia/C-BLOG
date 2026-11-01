@@ -45,7 +45,7 @@ const SceneWork = ({ leaving, refreshToken = 0, onOpenPost }: SceneWorkProps) =>
   const [activeTagId, setActiveTagId] = useState<number | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /* 分页（仅默认列表模式；搜索/标签模式展示全部结果） */
+  /* 分页：默认列表 / 搜索 / 标签三种数据源都走后端分页 */
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -80,10 +80,13 @@ const SceneWork = ({ leaving, refreshToken = 0, onOpenPost }: SceneWorkProps) =>
     try {
       // 数据源优先级：搜索 > 标签 > 默认列表（互斥，最近一次操作决定来源）
       if (searchVal) {
-        const results = await searchApi.search(searchVal);
+        const { posts: results, total: t } = await searchApi.search(searchVal, page, PAGE_SIZE);
         setPosts(results);
+        setTotal(t);
       } else if (activeTagId !== null) {
-        setPosts(await tagsApi.posts(activeTagId));
+        const { posts: list, total: t } = await tagsApi.posts(activeTagId, page, PAGE_SIZE);
+        setPosts(list);
+        setTotal(t);
       } else {
         const { posts: list, total: t } = await postsApi.listPage(page, PAGE_SIZE);
         setPosts(list);
@@ -162,6 +165,7 @@ const SceneWork = ({ leaving, refreshToken = 0, onOpenPost }: SceneWorkProps) =>
                 onClick={() => {
                   setActiveTagId(null);
                   handleSearchInput("");
+                  setPage(1);
                 }}
               >
                 全部
@@ -174,6 +178,7 @@ const SceneWork = ({ leaving, refreshToken = 0, onOpenPost }: SceneWorkProps) =>
                   onClick={() => {
                     handleSearchInput("");
                     setActiveTagId(activeTagId === t.id ? null : t.id);
+                    setPage(1);
                   }}
                 >
                   {t.name}
@@ -192,8 +197,8 @@ const SceneWork = ({ leaving, refreshToken = 0, onOpenPost }: SceneWorkProps) =>
           onOpen={onOpenPost}
         />
 
-        {/* 分页：仅默认列表模式显示（搜索/标签结果一次全出，不翻页） */}
-        {!searchVal && activeTagId === null && totalPages > 1 && (
+        {/* 分页：三种数据源共用（B9 起搜索/标签也由后端分页） */}
+        {totalPages > 1 && (
           <div className="work-pager">
             <button
               type="button"

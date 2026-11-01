@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include <boost/json.hpp>
 
 namespace json = boost::json;
@@ -30,6 +31,9 @@ json::object get_active();
 
 // @cuiruoni+某用户自己的投稿
 json::array list_by_uploader(int64_t uploader_id);
+
+// @cuiruoni+B13：删除账号前取该用户所有投稿文件名，用于级联删库后清理磁盘文件
+std::vector<std::string> list_filenames_by_uploader(int64_t uploader_id);
 
 // @cuiruoni+按 id 取单行；不存在返回 false
 bool get(int64_t id, VideoRow& out);

@@ -52,7 +52,7 @@ MiddlewareFunc create_path_protected_auth_middleware() {
         std::string path = target.substr(0, target.find('?'));
 
         // @cuiruoni+公开路径白名单：无需认证即可访问（注意：此列表对所有 HTTP 方法放行，
-        // @cuiruoni+只放行无副作用/无成本的操作，付费类接口（如风格转换提交）不得加入）
+        // @cuiruoni+只放行无副作用/无成本的操作，付费或高成本接口不得加入）
         static const std::vector<std::string> public_prefixes = {
             "/api/auth/register",
             "/api/auth/login",

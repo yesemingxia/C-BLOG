@@ -47,7 +47,7 @@ json::array list_by_status(const std::string& status, int page, int page_size, i
             "DATE_FORMAT(v.created_at, '%Y-%m-%d %H:%i:%s') AS created_at "
             "FROM video_submissions v LEFT JOIN users u ON v.uploader_id = u.id";
         if (filtered) list_sql += " WHERE v.status = ?";
-        list_sql += " ORDER BY v.is_active DESC, v.created_at DESC LIMIT ? OFFSET ?";
+        list_sql += " ORDER BY v.is_active DESC, v.created_at DESC, v.id DESC LIMIT ? OFFSET ?";
 
         auto stmt = sess->sql(list_sql);
         if (filtered) stmt.bind(status);
@@ -128,6 +128,23 @@ json::array list_by_uploader(int64_t uploader_id) {
         spdlog::error("video_dao::list_by_uploader error: {}", e.what());
         return json::array{};
     }
+}
+
+std::vector<std::string> list_filenames_by_uploader(int64_t uploader_id) {
+    std::vector<std::string> filenames;
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return filenames;
+
+    try {
+        auto result = sess->sql("SELECT filename FROM video_submissions WHERE uploader_id = ?")
+            .bind(uploader_id).execute();
+        for (auto row = result.begin(); row != result.end(); ++row) {
+            filenames.push_back(mysqlx_helper::to_string((*row)[0]));
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("video_dao::list_filenames_by_uploader error: {}", e.what());
+    }
+    return filenames;
 }
 
 bool get(int64_t id, VideoRow& out) {

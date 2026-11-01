@@ -393,6 +393,32 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
+/* B5：回复归位到父评论下面（后端早就有 parent_id，原来被平铺成同级） */
+.ssp-scope .post-modal-comment-node {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+}
+
+.ssp-scope .post-modal-comment-children {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.ssp-scope .post-modal-comment.is-reply {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.ssp-scope .post-modal-comment.is-reply .post-modal-comment-author {
+  color: rgba(165, 243, 252, 0.72);
+}
+
 .ssp-scope .post-modal-comment-head {
   display: flex;
   align-items: baseline;
@@ -408,8 +434,53 @@
 }
 
 .ssp-scope .post-modal-comment-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.4);
+}
+
+.ssp-scope .post-modal-comment-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+}
+
+.ssp-scope .post-modal-comment-delete:hover {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.ssp-scope .post-modal-comment-more {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.ssp-scope .post-modal-comment-more:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.ssp-scope .post-modal-comment-more:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .ssp-scope .post-modal-comment-body {

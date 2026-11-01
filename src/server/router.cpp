@@ -44,8 +44,43 @@ void Router::add_route(const std::string& method, const std::string& pattern, Ha
     spdlog::debug("Route registered: {} {}", method, pattern);
 }
 
+void Router::add_file_route(const std::string& method, const std::string& pattern,
+                            FileHandlerFunc handler) {
+    FileRoute route;
+    route.method = method;
+    route.pattern = pattern;
+    route.handler = std::move(handler);
+
+    auto segments = split_path(pattern);
+    for (const auto& seg : segments) {
+        if (!seg.empty() && seg[0] == ':') {
+            route.param_names.push_back(seg.substr(1));
+        }
+    }
+
+    file_routes_.push_back(std::move(route));
+    spdlog::debug("File route registered: {} {}", method, pattern);
+}
+
 void Router::add_middleware(MiddlewareFunc mw) {
     middlewares_.push_back(std::move(mw));
+}
+
+bool Router::route_file_request(const http::request<http::string_body>& req,
+                                FileRouteResult& result) {
+    std::string target(req.target());
+    RouteParams params;
+    std::string path = extract_query(target, params.query);
+    std::string method(req.method_string());
+
+    for (const auto& route : file_routes_) {
+        if (route.method != method) continue;
+        if (!match_path(route.pattern, route.param_names, path, params)) continue;
+        result = route.handler(req, params);
+        result.matched = true;
+        return true;
+    }
+    return false;
 }
 
 bool Router::route_request(const http::request<http::string_body>& req,

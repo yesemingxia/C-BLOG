@@ -53,7 +53,15 @@ static http::response<http::string_body> handle_contact(
         email = sanitize::truncate(email, 100);
 
         // @cuiruoni+插入联系消息到contact_messages表
-        contact_dao::insert(name, email, message);
+        // @cuiruoni+原来忽略返回值：写库失败仍然回 200「Message sent successfully」，
+        // @cuiruoni+访客以为留言成功，后台永远看不到这条 —— 留言是单向入口，失败必须回错误让用户重填。
+        if (!contact_dao::insert(name, email, message)) {
+            spdlog::error("Contact form insert failed");
+            http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+            res.body() = response::error(500, "Failed to save your message, please try again later");
+            res.prepare_payload();
+            return res;
+        }
 
         http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(std::string("Message sent successfully"));

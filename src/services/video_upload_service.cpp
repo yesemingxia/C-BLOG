@@ -2,6 +2,7 @@
 #include "dao/video_dao.h"
 #include "utils/logger.h"
 #include "utils/sanitize.h"
+#include "utils/storage.h"
 
 #include <algorithm>
 #include <chrono>
@@ -18,15 +19,16 @@ namespace video_upload_service {
 
 namespace {
 
-// @cuiruoni+视频存储目录与分片临时目录（uploads/ 已在 .gitignore 中）
-constexpr const char* kVideoDir = "uploads/videos";
-constexpr const char* kTmpDir = "uploads/videos/tmp";
+// @cuiruoni+视频与分片目录改由启动时定死的 storage 根派生（原来写死 "uploads/..."，
+// @cuiruoni+位置随进程工作目录漂移；详见 utils/storage.h）。uploads/ 已在 .gitignore 中
 // @cuiruoni+与投稿一致的大小上限；分片 body 限额由 session.cpp 单独放宽到 2MB
 constexpr size_t kMaxVideoBytes = 50 * 1024 * 1024;
 constexpr size_t kMaxChunkBytes = 2 * 1024 * 1024;
-// @cuiruoni+会话过期时间与全局会话数上限
+// @cuiruoni+会话过期时间、全局会话数上限与单用户上限
+// @cuiruoni+B11：只限全局时，一个用户开满 20 个会话就能让别人无法上传
 constexpr int kSessionTtlSeconds = 30 * 60;
 constexpr size_t kMaxSessions = 20;
+constexpr size_t kMaxSessionsPerUser = 3;
 
 struct UploadSession {
     int64_t owner_id = 0;
@@ -61,6 +63,33 @@ void prune_locked() {
         } else {
             ++it;
         }
+    }
+}
+
+// @cuiruoni+B11：会话表是进程内的，服务重启后磁盘上的 .part 不再被任何会话认领，
+// @cuiruoni+只按 g_sessions 清理会永久留下孤儿文件 —— 这里按文件修改时间兜底扫一遍。
+// @cuiruoni+正在上传的分片每次 append 都会刷新 mtime，因此 TTL 内的文件不会被误删。
+void sweep_stale_parts() {
+    std::error_code ec;
+    fs::directory_iterator it(storage::video_tmp(), ec), end;
+    if (ec) return; // 目录还没建（从未有人上传过）
+    auto now = fs::file_time_type::clock::now();
+    const auto ttl = std::chrono::seconds(kSessionTtlSeconds);
+    size_t removed = 0;
+    for (; !ec && it != end; it.increment(ec)) {
+        const fs::path path = it->path();
+        if (path.extension() != ".part") continue;
+        std::error_code time_ec;
+        auto mtime = fs::last_write_time(path, time_ec);
+        if (time_ec) continue;
+        if (now - mtime > ttl) {
+            std::error_code rm_ec;
+            fs::remove(path, rm_ec);
+            if (!rm_ec) ++removed;
+        }
+    }
+    if (removed > 0) {
+        spdlog::info("[video] swept {} orphan .part file(s) from {}", removed, storage::video_tmp());
     }
 }
 
@@ -103,8 +132,17 @@ InitResult init(int64_t owner_id, size_t file_size, const std::string& original_
         r.error = "上传会话数已达上限，请稍后重试";
         return r;
     }
+    size_t own_sessions = 0;
+    for (const auto& entry : g_sessions) {
+        if (entry.second.owner_id == owner_id) ++own_sessions;
+    }
+    if (own_sessions >= kMaxSessionsPerUser) {
+        r.http_status = 429;
+        r.error = "同时进行的上传任务过多（每用户最多 3 个），请等待已有任务完成或过期";
+        return r;
+    }
 
-    fs::create_directories(kTmpDir);
+    fs::create_directories(storage::video_tmp());
     UploadSession s;
     s.owner_id = owner_id;
     s.file_size = file_size;
@@ -112,7 +150,7 @@ InitResult init(int64_t owner_id, size_t file_size, const std::string& original_
     if (s.original_name.empty()) s.original_name = "video";
     s.received = 0;
     s.last_active = std::chrono::steady_clock::now();
-    s.temp_path = std::string(kTmpDir) + "/" + random_id() + ".part";
+    s.temp_path = storage::video_tmp() + "/" + random_id() + ".part";
 
     std::ofstream out(s.temp_path, std::ios::binary | std::ios::trunc);
     if (!out) {
@@ -259,9 +297,9 @@ CompleteResult complete(int64_t owner_id, const std::string& upload_id) {
 
         // @cuiruoni+改名进正式目录
         std::string filename = make_filename(ext);
-        std::string final_path = std::string(kVideoDir) + "/" + filename;
+        std::string final_path = storage::videos() + "/" + filename;
         std::error_code ec;
-        fs::create_directories(kVideoDir);
+        fs::create_directories(storage::videos());
         fs::rename(s.temp_path, final_path, ec);
         if (ec) {
             r.http_status = 500;
@@ -300,6 +338,8 @@ void abort(int64_t owner_id, const std::string& upload_id) {
 void prune_expired() {
     std::lock_guard<std::mutex> lock(g_mutex);
     prune_locked();
+    // @cuiruoni+B11：先清内存里过期的会话，再扫目录清掉重启遗留的孤儿分片
+    sweep_stale_parts();
 }
 
 }

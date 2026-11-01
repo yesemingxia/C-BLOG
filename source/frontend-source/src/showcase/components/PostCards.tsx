@@ -26,6 +26,8 @@ const PostCard = ({ post: p, onOpen }: PostCardProps) => {
   const cover = p.cover || `https://picsum.photos/seed/blog${p.id}/600/400`;
   const body = p.content_md ?? p.content ?? "";
   const date = p.created_at ? p.created_at.slice(0, 10) : "";
+  // @cuiruoni+A4：列表接口不带正文，阅读时长用后端预计算的 read_minutes
+  const minutes = p.read_minutes && p.read_minutes > 0 ? p.read_minutes : readMinutes(body);
 
   return (
     <article
@@ -58,7 +60,7 @@ const PostCard = ({ post: p, onOpen }: PostCardProps) => {
       <div className="project-card-info">
         <p className="post-card-meta">
           {date}
-          {date ? " · " : ""}约 {readMinutes(body)} 分钟
+          {date ? " · " : ""}约 {minutes} 分钟
           {p.views ? ` · ${p.views} 次阅读` : ""}
         </p>
         <h3 className="project-card-title">{p.title}</h3>

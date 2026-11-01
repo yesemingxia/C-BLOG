@@ -1,21 +1,46 @@
 #include "controllers/auth_controller.h"
 
 #include "dao/notification_dao.h"
+#include "dao/post_dao.h"
 #include "dao/user_dao.h"
+#include "dao/video_dao.h"
 #include "db/redis_pool.h"
 #include "services/auth_service.h"
+#include "services/post_service.h"
+#include "services/search_service.h"
 #include "utils/config.h"
 #include "utils/logger.h"
 #include "utils/password.h"
 #include "utils/response.h"
 #include "utils/sanitize.h"
+#include "utils/storage.h"
 
 #include <boost/json.hpp>
 #include <jwt-cpp/traits/boost-json/traits.h>
+#include <filesystem>
 #include <regex>
 
 namespace json = boost::json;
 namespace http = boost::beast::http;
+
+namespace {
+
+bool is_valid_email(const std::string& email) {
+    static std::regex email_regex(R"(^[^\s@]+@[^\s@]+\.[^\s@]+$)");
+    return std::regex_match(email, email_regex);
+}
+
+// @cuiruoni+B13：删除账号后清理该用户的投稿文件（数据库行由外键级联删除）
+void remove_uploaded_videos(const std::vector<std::string>& filenames) {
+    std::error_code ec;
+    for (const auto& name : filenames) {
+        std::filesystem::remove(storage::videos() + "/" + name, ec);
+        if (ec) spdlog::warn("Failed to remove video file {}: {}", name, ec.message());
+        ec.clear();
+    }
+}
+
+} // namespace
 
 // @cuiruoni+注册处理：校验参数→查重→生成盐+哈希→Base64编码存储
 static http::response<http::string_body> handle_register(
@@ -37,14 +62,11 @@ static http::response<http::string_body> handle_register(
             return res;
         }
         // @cuiruoni+P1修复：注册时校验邮箱格式（与联系表单一致）
-        if (!email.empty()) {
-            static std::regex email_regex(R"(^[^\s@]+@[^\s@]+\.[^\s@]+$)");
-            if (!std::regex_match(email, email_regex)) {
-                http::response<http::string_body> res{http::status::bad_request, req.version()};
-                res.body() = response::error(400, "Invalid email address");
-                res.prepare_payload();
-                return res;
-            }
+        if (!email.empty() && !is_valid_email(email)) {
+            http::response<http::string_body> res{http::status::bad_request, req.version()};
+            res.body() = response::error(400, "Invalid email address");
+            res.prepare_payload();
+            return res;
         }
 
         // @cuiruoni+密码复杂度校验：至少6位，包含大小写字母和数字
@@ -83,6 +105,13 @@ static http::response<http::string_body> handle_register(
             res.prepare_payload();
             return res;
         }
+        // @cuiruoni+B2：邮箱唯一（空邮箱不占用名额，存 NULL）
+        if (!email.empty() && user_dao::count_by_email(email) > 0) {
+            http::response<http::string_body> res{http::status::conflict, req.version()};
+            res.body() = response::error(409, "Email already exists");
+            res.prepare_payload();
+            return res;
+        }
 
         // @cuiruoni+密码加盐哈希：生成随机盐→PBKDF2哈希→Base64编码后存储，避免明文存储
         std::string salt = password::generate_salt();
@@ -92,6 +121,13 @@ static http::response<http::string_body> handle_register(
 
         // @cuiruoni+通过DAO层创建用户，返回新用户ID
         int64_t user_id = user_dao::insert(username, hash_b64, salt_b64, email);
+        // @cuiruoni+B2：并发注册撞唯一索引时 insert 返回 0，不能继续签发 user_id=0 的 token
+        if (user_id <= 0) {
+            http::response<http::string_body> res{http::status::conflict, req.version()};
+            res.body() = response::error(409, "Username or email already exists");
+            res.prepare_payload();
+            return res;
+        }
 
         // @cuiruoni+注册成功后自动生成JWT token，前端可直接登录态
         std::string token = auth_service::generate_token(user_id, username, "user");
@@ -150,8 +186,14 @@ static http::response<http::string_body> handle_login(
             return res;
         }
 
+        // @cuiruoni+安全：锁定计数用的 IP 只认 Session 归一后的 X-Client-IP。
+        // @cuiruoni+客户端自带的 X-Real-IP 每请求换一个值，就等于每请求换一个新的失败桶，
+        // @cuiruoni+按来源锁定会形同不存在（和 B11 那轮修掉的限流绕过是同一个口子）。
+        std::string client_ip = req.find("X-Client-IP") != req.end()
+            ? std::string(req["X-Client-IP"]) : std::string("unknown");
+
         // @cuiruoni+检查账号是否因登录失败次数过多被锁定
-        if (auth_service::is_account_locked(username)) {
+        if (auth_service::is_account_locked(username, client_ip)) {
             http::response<http::string_body> res{http::status::too_many_requests, req.version()};
             res.body() = response::error(429, "Account temporarily locked due to too many failed login attempts. Please try again later.");
             res.prepare_payload();
@@ -163,7 +205,7 @@ static http::response<http::string_body> handle_login(
         std::string db_username, hash_b64, salt_b64, role, db_email;
         if (!user_dao::find_by_username_or_email(username, user_id, db_username, hash_b64, salt_b64, role, db_email)) {
             // @cuiruoni+用户不存在也记录失败，防止通过响应时间枚举用户名
-            auth_service::record_login_failure(username);
+            auth_service::record_login_failure(username, client_ip);
             http::response<http::string_body> res{http::status::unauthorized, req.version()};
             res.body() = response::error(401, "Invalid username/email or password");
             res.prepare_payload();
@@ -175,7 +217,7 @@ static http::response<http::string_body> handle_login(
         std::string expected_hash = password::base64_decode(hash_b64);
 
         if (!password::verify_password(password, salt, expected_hash)) {
-            auth_service::record_login_failure(db_username);
+            auth_service::record_login_failure(db_username, client_ip);
             http::response<http::string_body> res{http::status::unauthorized, req.version()};
             res.body() = response::error(401, "Invalid username/email or password");
             res.prepare_payload();
@@ -183,7 +225,7 @@ static http::response<http::string_body> handle_login(
         }
 
         // @cuiruoni+登录成功，清除失败计数
-        auth_service::clear_login_failures(db_username);
+        auth_service::clear_login_failures(db_username, client_ip);
 
         // @cuiruoni+验证通过，生成JWT token，包含user_id、username、role声明
         std::string token = auth_service::generate_token(user_id, db_username, role);
@@ -311,34 +353,72 @@ static http::response<http::string_body> handle_update_profile(
     try {
         auto body = json::parse(req.body()).as_object();
 
-        // @cuiruoni+提取并消毒所有可选字段
-        std::string email = body.contains("email") && !body["email"].is_null()
-            ? sanitize::truncate(sanitize::clean_text(std::string(body["email"].as_string())), 100) : "";
-        std::string bio = body.contains("bio") && !body["bio"].is_null()
-            ? sanitize::truncate(sanitize::clean_text(std::string(body["bio"].as_string())), 500) : "";
-        std::string avatar = body.contains("avatar") && !body["avatar"].is_null()
-            ? sanitize::safe_url(std::string(body["avatar"].as_string())) : "";
-        std::string location = body.contains("location") && !body["location"].is_null()
-            ? sanitize::truncate(sanitize::clean_text(std::string(body["location"].as_string())), 100) : "";
-        std::string website = body.contains("website") && !body["website"].is_null()
-            ? sanitize::safe_url(std::string(body["website"].as_string())) : "";
-        std::string twitter = body.contains("twitter") && !body["twitter"].is_null()
-            ? sanitize::truncate(sanitize::clean_text(std::string(body["twitter"].as_string())), 100) : "";
+        // @cuiruoni+B3：只记录请求中出现的字段，未出现的字段保持原值
+        user_dao::ProfilePatch patch;
+        auto take_string = [&](const char* key, size_t max_len, bool url_safe)
+            -> std::optional<std::string> {
+            auto it = body.find(key);
+            if (it == body.end() || it->value().is_null()) return std::nullopt;
+            if (!it->value().is_string()) throw std::invalid_argument(std::string(key) + " must be a string");
+            std::string raw(it->value().as_string());
+            std::string value = url_safe
+                ? sanitize::safe_url(raw)
+                : sanitize::truncate(sanitize::clean_text(raw), max_len);
+            return value;
+        };
 
-        // @cuiruoni+通过DAO层更新用户资料
-        user_dao::update_profile(user_id, email, bio, avatar, location, website, twitter);
+        patch.email = take_string("email", 100, false);
+        patch.bio = take_string("bio", 500, false);
+        patch.avatar = take_string("avatar", 500, true);
+        patch.location = take_string("location", 100, false);
+        patch.website = take_string("website", 200, true);
+        patch.twitter = take_string("twitter", 100, false);
 
-        // @cuiruoni+返回更新后的用户信息
-        json::object data;
-        data["id"] = user_id;
-        data["username"] = username;
-        data["email"] = email;
-        data["bio"] = bio;
-        data["avatar"] = avatar;
-        data["location"] = location;
-        data["website"] = website;
-        data["twitter"] = twitter;
-        data["role"] = role;
+        if (patch.email) {
+            if (!patch.email->empty() && !is_valid_email(*patch.email)) {
+                http::response<http::string_body> res{http::status::bad_request, req.version()};
+                res.body() = response::error(400, "Invalid email address");
+                res.prepare_payload();
+                return res;
+            }
+            if (!patch.email->empty() &&
+                user_dao::count_by_email(*patch.email, user_id) > 0) {
+                http::response<http::string_body> res{http::status::conflict, req.version()};
+                res.body() = response::error(409, "Email already exists");
+                res.prepare_payload();
+                return res;
+            }
+        }
+
+        // @cuiruoni+B1 残留：换头像/清空头像后旧文件就再没人引用了，而它仍留在磁盘上、
+        // @cuiruoni+仍能被 /api/upload/file/<旧名> 公开取到 —— 换个头像相当于把旧头像永久挂在网上。
+        // @cuiruoni+只在「这次确实改了 avatar」时取旧值，更新成功后再判引用（同一个人可能在别处也用了这张图）。
+        std::vector<std::string> old_avatar_texts;
+        if (patch.avatar) {
+            json::object before = user_dao::find_profile_by_id(user_id);
+            auto old_it = before.find("avatar");
+            if (old_it != before.end() && old_it->value().is_string()
+                && old_it->value().as_string() != *patch.avatar) {
+                old_avatar_texts.push_back(std::string(old_it->value().as_string()));
+            }
+        }
+
+        if (!user_dao::update_profile(user_id, patch)) {
+            http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+            res.body() = response::error(500, "Failed to update profile");
+            res.prepare_payload();
+            return res;
+        }
+        post_service::reclaim_images(old_avatar_texts);
+
+        // @cuiruoni+B3：返回数据库里的完整资料（含粉丝/关注计数），而不是请求里的片段
+        json::object data = user_dao::find_profile_by_id(user_id);
+        if (data.empty()) {
+            http::response<http::string_body> res{http::status::not_found, req.version()};
+            res.body() = response::error(404, "User not found");
+            res.prepare_payload();
+            return res;
+        }
 
         http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success("Profile updated", data);
@@ -573,7 +653,16 @@ static http::response<http::string_body> handle_change_password(
         std::string new_salt_b64 = password::base64_encode(new_salt);
 
         // @cuiruoni+通过DAO层更新密码
-        user_dao::update_password(user_id, new_hash_b64, new_salt_b64);
+        // @cuiruoni+原来忽略返回值：DAO 失败（连接池拿不到会话、SQL 异常）时这里照样把当前 token
+        // @cuiruoni+拉黑并回「Password changed successfully」，用户被迫重新登录、且旧密码仍然有效，
+        // @cuiruoni+属于「把失败说成成功」。改成失败即 500，且不做拉黑（token 保持可用）。
+        if (!user_dao::update_password(user_id, new_hash_b64, new_salt_b64)) {
+            spdlog::error("Change password failed at DAO layer, user_id={}", user_id);
+            http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+            res.body() = response::error(500, "Failed to update password, please try again");
+            res.prepare_payload();
+            return res;
+        }
 
         // @cuiruoni+P1修复：改密后把当前token加入黑名单，旧token立即失效
         auth_service::blacklist_token(token, Config::instance().jwt_expire_seconds());
@@ -586,6 +675,97 @@ static http::response<http::string_body> handle_change_password(
         spdlog::error("Change password error: {}", e.what());
         http::response<http::string_body> res{http::status::internal_server_error, req.version()};
         res.body() = response::error(500, "Internal server error");
+        res.prepare_payload();
+        return res;
+    }
+}
+
+// @cuiruoni+B13：自助注销账号。删除前必须再次验证密码；
+// @cuiruoni+数据库依赖 B1 的 ON DELETE CASCADE 清理文章/评论/点赞等，磁盘上的投稿视频单独删。
+static http::response<http::string_body> handle_delete_own_account(
+    const http::request<http::string_body>& req, const RouteParams&) {
+    std::string token = auth_service::extract_token_from_request(req);
+    int64_t user_id = 0;
+    std::string username, role;
+    if (token.empty() || !auth_service::validate_token(token, user_id, username, role)) {
+        http::response<http::string_body> res{http::status::unauthorized, req.version()};
+        res.body() = response::error(401, "Invalid or expired token");
+        res.prepare_payload();
+        return res;
+    }
+
+    // @cuiruoni+B13：管理员账号不提供自助删除，避免误删最后一个管理员导致后台失联
+    if (role == "admin") {
+        http::response<http::string_body> res{http::status::bad_request, req.version()};
+        res.body() = response::error(400,
+            "Admin accounts cannot delete themselves; transfer ownership first");
+        res.prepare_payload();
+        return res;
+    }
+
+    try {
+        auto body = json::parse(req.body()).as_object();
+        if (!body.contains("password") || !body.at("password").is_string()) {
+            http::response<http::string_body> res{http::status::bad_request, req.version()};
+            res.body() = response::error(400, "Password confirmation is required");
+            res.prepare_payload();
+            return res;
+        }
+        std::string password(body.at("password").as_string());
+
+        std::string hash_b64, salt_b64;
+        if (!user_dao::find_password_by_id(user_id, hash_b64, salt_b64)) {
+            http::response<http::string_body> res{http::status::not_found, req.version()};
+            res.body() = response::error(404, "User not found");
+            res.prepare_payload();
+            return res;
+        }
+        std::string salt = password::base64_decode(salt_b64);
+        std::string expected_hash = password::base64_decode(hash_b64);
+        if (!password::verify_password(password, salt, expected_hash)) {
+            http::response<http::string_body> res{http::status::bad_request, req.version()};
+            res.body() = response::error(400, "Password is incorrect");
+            res.prepare_payload();
+            return res;
+        }
+
+        std::vector<std::string> video_files = video_dao::list_filenames_by_uploader(user_id);
+
+        // @cuiruoni+B1 残留（图片侧）：注销同样只删数据库行，封面/正文图/头像会留在磁盘上，
+        // @cuiruoni+而 /api/upload/file/:name 公开可读。先取文本，删库成功后再逐张判引用。
+        std::vector<std::string> media_texts = post_dao::list_media_texts(0, user_id);
+        {
+            json::object profile = user_dao::find_profile_by_id(user_id);
+            auto avatar_it = profile.find("avatar");
+            if (avatar_it != profile.end() && avatar_it->value().is_string()) {
+                media_texts.push_back(std::string(avatar_it->value().as_string()));
+            }
+        }
+
+        if (!user_dao::delete_by_id(user_id)) {
+            http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+            res.body() = response::error(500, "Failed to delete account");
+            res.prepare_payload();
+            return res;
+        }
+        remove_uploaded_videos(video_files);
+        post_service::reclaim_images(media_texts);
+        search_service::invalidate_cache();
+        auth_service::blacklist_token(token, Config::instance().jwt_expire_seconds());
+
+        http::response<http::string_body> res{http::status::ok, req.version()};
+        {
+            std::string cookie = "blog_token=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax";
+            if (Config::instance().get_bool("cookie_secure", false)) cookie += "; Secure";
+            res.set(http::field::set_cookie, cookie);
+        }
+        res.body() = response::success(std::string("Account deleted"));
+        res.prepare_payload();
+        return res;
+    } catch (const std::exception& e) {
+        spdlog::error("Delete own account error: {}", e.what());
+        http::response<http::string_body> res{http::status::bad_request, req.version()};
+        res.body() = response::error(400, "Invalid request body");
         res.prepare_payload();
         return res;
     }
@@ -671,7 +851,7 @@ static http::response<http::string_body> handle_follow_user(
 
     bool newly_followed = user_dao::follow(user_id, target_id);
     if (newly_followed) {
-        notification_dao::insert(target_id, "follow", username, "关注了你", "");
+        notification_dao::insert(target_id, "follow", username, "关注了你", "", 0, user_id);
     }
 
     json::object data;
@@ -731,6 +911,7 @@ void register_auth_routes(Router& router) {
     router.add_route("GET", "/api/users/background", handle_get_background);
     router.add_route("PUT", "/api/users/background", handle_update_background);
     router.add_route("POST", "/api/auth/change-password", handle_change_password);
+    router.add_route("DELETE", "/api/users/me", handle_delete_own_account);
     router.add_route("GET", "/api/users/:username", handle_get_public_profile);
     router.add_route("POST", "/api/users/:username/follow", handle_follow_user);
     router.add_route("DELETE", "/api/users/:username/follow", handle_unfollow_user);

@@ -1,6 +1,8 @@
 #include "utils/config.h"
 
 #include <boost/json.hpp>
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -62,13 +64,57 @@ void Config::load(const std::string& path) {
     override_str("JWT_SECRET", "jwt_secret");
     override_int("JWT_EXPIRE_SECONDS", "jwt_expire_seconds");
     override_str("CORS_ALLOWED_ORIGIN", "cors_allowed_origin");
+    // @cuiruoni+B14：CORS_ALLOWED_ORIGINS=a,b,c 覆盖为数组
+    if (has_env("CORS_ALLOWED_ORIGINS")) {
+        json::array origins;
+        std::string raw = std::getenv("CORS_ALLOWED_ORIGINS");
+        std::stringstream ss(raw);
+        std::string item;
+        while (std::getline(ss, item, ',')) {
+            auto begin = item.find_first_not_of(" \t");
+            auto end = item.find_last_not_of(" \t");
+            if (begin != std::string::npos) {
+                origins.push_back(json::value(item.substr(begin, end - begin + 1)));
+            }
+        }
+        data_["cors_allowed_origins"] = std::move(origins);
+    }
     override_int("SERVER_PORT", "server_port");
     override_str("LOG_LEVEL", "log_level");
-    override_str("DASHSCOPE_API_KEY", "dashscope_api_key");
+    // @cuiruoni+安全：只有确认后端只被可信代理访问时，才允许用 TRUST_PROXY_REAL_IP 打开
+    // @cuiruoni+对 X-Real-IP 的认账；不开就只认 TCP 对端地址。
+    if (has_env("TRUST_PROXY_REAL_IP")) {
+        std::string raw = std::getenv("TRUST_PROXY_REAL_IP");
+        std::transform(raw.begin(), raw.end(), raw.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        data_["trust_proxy_real_ip"] = (raw == "1" || raw == "true" || raw == "yes" || raw == "on");
+    }
 
     const std::string secret = get_string("jwt_secret", "");
-    if (secret.empty() || secret == "cpp-blog-secret-key") {
-        throw std::runtime_error("jwt_secret must be configured and must not use the default value");
+    // @cuiruoni+原来只拦「空」和 cpp-blog-secret-key 这一个值。config.local.json 里带的
+    // @cuiruoni+change-me-to-a-random-secret-… 能照常启动，而它是写在仓库里的公开字符串 ——
+    // @cuiruoni+HS256 是对称密钥，密钥一旦公开，任何人都能自己签一个 role=admin、user_id=1 的
+    // @cuiruoni+token 直接进后台，验签是过的。这类占位值一律拒绝启动。
+    std::string lowered = secret;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    // @cuiruoni+32 位是「不能用字典猜」的下限；占位串往往够长但内容是公开的，所以两个条件独立判。
+    bool unacceptable = secret.size() < 32;
+    static constexpr const char* kPlaceholderMarks[] = {
+        "change-me", "change_me", "changeme", "your-secret", "your_secret",
+        "placeholder", "example", "secret-key", "todo", "xxxxxx",
+    };
+    for (const char* mark : kPlaceholderMarks) {
+        if (lowered.find(mark) != std::string::npos) {
+            unacceptable = true;
+            break;
+        }
+    }
+    if (unacceptable) {
+        throw std::runtime_error(
+            "jwt_secret must be a private random string of at least 32 characters "
+            "(generate one, e.g. `openssl rand -hex 32`, or set the JWT_SECRET environment variable). "
+            "Placeholder or short values are refused: with a known HS256 key anyone can forge an admin token.");
     }
 }
 
@@ -101,7 +147,7 @@ bool Config::get_bool(const std::string& key, bool default_val) const {
 }
 
 std::string Config::server_host() const { return get_string("server_host", "0.0.0.0"); }
-int Config::server_port() const { return get_int("server_port", 8088); }
+int Config::server_port() const { return get_int("server_port", 8089); }
 std::string Config::db_host() const { return get_string("db_host", "127.0.0.1"); }
 int Config::db_port() const { return get_int("db_port", 33060); } // @cuiruoni+MySQL X DevAPI默认端口
 std::string Config::db_user() const { return get_string("db_user", "root"); }
@@ -115,7 +161,24 @@ int Config::redis_pool_size() const { return get_int("redis_pool_size", 4); }
 std::string Config::jwt_secret() const { return get_string("jwt_secret", ""); }
 int Config::jwt_expire_seconds() const { return get_int("jwt_expire_seconds", 14400); } // @cuiruoni+默认4小时，生产环境建议缩短
 std::string Config::cors_allowed_origin() const { return get_string("cors_allowed_origin", "http://localhost:5173"); }
-int Config::max_request_body_bytes() const { return get_int("max_request_body_bytes", 1048576); } // @cuiruoni+默认1MB；图片上传接口由 session 按路径单独放宽
+std::vector<std::string> Config::cors_allowed_origins() const {
+    std::vector<std::string> origins;
+    auto it = data_.find("cors_allowed_origins");
+    if (it != data_.end() && it->value().is_array()) {
+        for (const auto& value : it->value().as_array()) {
+            if (value.is_string()) origins.emplace_back(value.as_string().c_str());
+        }
+    }
+    if (origins.empty()) {
+        std::string single = get_string("cors_allowed_origin", "http://localhost:5173");
+        if (!single.empty()) origins.push_back(std::move(single));
+    }
+    return origins;
+}
+// @cuiruoni+安全：默认不相信请求头里的 X-Real-IP，只认 TCP 对端（见 utils/client_ip.h）
+bool Config::trust_proxy_real_ip() const { return get_bool("trust_proxy_real_ip", false); }
 int Config::server_threads() const { return get_int("server_threads", 0); }
 std::string Config::log_level() const { return get_string("log_level", "info"); }
 std::string Config::log_file() const { return get_string("log_file", ""); }
+// @cuiruoni+默认 "uploads"：相对值由 storage::derive_root 钉到项目根，不是进程 cwd
+std::string Config::storage_root() const { return get_string("storage_root", "uploads"); }

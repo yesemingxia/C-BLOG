@@ -1,6 +1,7 @@
 #pragma once
 
 #include "models/user.h"
+#include <optional>
 #include <string>
 #include <vector>
 #include <boost/json.hpp>
@@ -13,11 +14,14 @@ namespace user_dao {
 // @cuiruoni+根据用户名查询用户是否存在，返回匹配的行数
 int64_t count_by_username(const std::string& username);
 
+// @cuiruoni+B2：邮箱唯一性校验。exclude_user_id 用于改资料时排除自己。
+int64_t count_by_email(const std::string& email, int64_t exclude_user_id = 0);
+
 // @cuiruoni+创建用户，返回新用户ID
 int64_t insert(const std::string& username, const std::string& password_hash,
                const std::string& salt, const std::string& email);
 
-// @cuiruoni+根据用户名或邮箱查询用户登录信息（id, username, password_hash, salt, role, email）
+// @cuiruoni+B2：先精确匹配用户名，再匹配唯一邮箱；不再用 OR 依赖数据库返回顺序
 bool find_by_username_or_email(const std::string& username,
                                int64_t& id, std::string& db_username,
                                std::string& password_hash, std::string& salt,
@@ -26,11 +30,20 @@ bool find_by_username_or_email(const std::string& username,
 // @cuiruoni+根据用户ID查询用户完整资料
 json::object find_profile_by_id(int64_t user_id);
 
-// @cuiruoni+更新用户资料（email, bio, avatar, location, website, twitter）
-bool update_profile(int64_t user_id, const std::string& email,
-                    const std::string& bio, const std::string& avatar,
-                    const std::string& location, const std::string& website,
-                    const std::string& twitter);
+// @cuiruoni+B3：资料更新的部分更新语义 —— 只有 optional 有值才写该列
+struct ProfilePatch {
+    std::optional<std::string> email;
+    std::optional<std::string> bio;
+    std::optional<std::string> avatar;
+    std::optional<std::string> location;
+    std::optional<std::string> website;
+    std::optional<std::string> twitter;
+};
+
+bool update_profile(int64_t user_id, const ProfilePatch& patch);
+
+// @cuiruoni+B5：评论落库时取当前用户邮箱
+bool find_email_by_id(int64_t user_id, std::string& email);
 
 // background setting (JSON string: {"type":"image|style|none","style_id":"...","image_url":"..."})
 bool get_background(int64_t user_id, std::string& background_json);
@@ -49,8 +62,11 @@ json::object find_public_profile_by_username(const std::string& username);
 // @cuiruoni+查询用户总数
 int64_t count_all();
 
-// @cuiruoni+分页查询用户列表（不含密码字段）
-json::array list_users(int page, int page_size, int& total);
+// @cuiruoni+B6/B7：服务端搜索 + 白名单排序，total 为搜索过滤后的总数
+json::array list_users(int page, int page_size, int& total,
+                       const std::string& q = "",
+                       const std::string& sort = "created_at",
+                       const std::string& order = "desc");
 
 // @cuiruoni+检查用户ID是否存在
 bool exists_by_id(int64_t user_id);

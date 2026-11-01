@@ -156,3 +156,35 @@ if(MSVC)
 endif()
 
 add_test(NAME blog_unit_tests COMMAND blog_tests)
+
+# ============================================================================
+# 接口级回归测试（B17）：默认关闭，因为需要先启动后端 + MySQL + Redis。
+# 用法：
+#   cmake -B build -DBLOG_API_TESTS=ON
+#   ctest --test-dir build -C Release -R blog_api --output-on-failure
+#   （MSVC 是多配置生成器，漏掉 -C Release 会报 “Test not available without configuration”）
+# 后端必须这样起：TRUST_PROXY_REAL_IP=true ./build/Release/blog.exe --config config/config.json
+#   —— 脚本靠 X-Real-IP 给每个模拟客户端分桶，而后端默认不认这个头（见 utils/client_ip.h）。
+# 也可直接运行：
+#   python tests/p1p2_api_check.py
+# ============================================================================
+option(BLOG_API_TESTS "Enable HTTP integration tests (requires a running backend)" OFF)
+if(BLOG_API_TESTS)
+    find_package(Python3 COMPONENTS Interpreter)
+    if(Python3_Interpreter_FOUND)
+        # @cuiruoni+B17：三个脚本串行跑（共用同一个库，B1 会删用户、A2 会改可见性）
+        foreach(_api_test p1p2_api_check a2_visibility_check b1_delete_user_check)
+            add_test(
+                NAME blog_api_${_api_test}
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/${_api_test}.py
+            )
+            set_tests_properties(blog_api_${_api_test} PROPERTIES
+                ENVIRONMENT "BLOG_API_BASE=http://127.0.0.1:8089"
+                RUN_SERIAL TRUE
+                TIMEOUT 600
+            )
+        endforeach()
+    else()
+        message(WARNING "BLOG_API_TESTS=ON but Python3 interpreter was not found")
+    endif()
+endif()

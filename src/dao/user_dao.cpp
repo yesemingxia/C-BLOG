@@ -1,7 +1,9 @@
 #include "dao/user_dao.h"
+#include "dao/dao_utils.h"
 #include "db/mysql_pool.h"
 #include "utils/logger.h"
 #include "utils/mysqlx_helper.h"
+#include "utils/sanitize.h"
 
 namespace user_dao {
 
@@ -19,13 +21,30 @@ int64_t count_by_username(const std::string& username) {
     }
 }
 
+int64_t count_by_email(const std::string& email, int64_t exclude_user_id) {
+    if (email.empty()) return 0;
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return 0;
+
+    try {
+        auto result = sess->sql("SELECT COUNT(*) FROM users WHERE email = ? AND id <> ?")
+            .bind(email).bind(exclude_user_id).execute();
+        return static_cast<int64_t>(result.fetchOne()[0]);
+    } catch (const std::exception& e) {
+        spdlog::error("user_dao::count_by_email error: {}", e.what());
+        return 0;
+    }
+}
+
 int64_t insert(const std::string& username, const std::string& password_hash,
                const std::string& salt, const std::string& email) {
     auto sess = MysqlPool::instance().acquire();
     if (!sess) return 0;
 
     try {
-        sess->sql("INSERT INTO users (username, password_hash, salt, email) VALUES (?, ?, ?, ?)")
+        // @cuiruoni+B2：空邮箱存 NULL，唯一索引才允许多个“未填邮箱”的账号
+        sess->sql("INSERT INTO users (username, password_hash, salt, email) "
+                  "VALUES (?, ?, ?, NULLIF(?, ''))")
             .bind(username)
             .bind(password_hash)
             .bind(salt)
@@ -48,19 +67,34 @@ bool find_by_username_or_email(const std::string& username,
     if (!sess) return false;
 
     try {
-        auto result = sess->sql(
-            "SELECT id, username, password_hash, salt, role, email FROM users WHERE username = ? OR email = ?")
-            .bind(username).bind(username).execute();
+        auto fill = [&](const mysqlx::Row& row) {
+            id = static_cast<int64_t>(row[0]);
+            db_username = mysqlx_helper::to_string(row[1]);
+            password_hash = mysqlx_helper::to_string(row[2]);
+            salt = mysqlx_helper::to_string(row[3]);
+            role = mysqlx_helper::to_string(row[4]);
+            email = row[5].isNull() ? "" : mysqlx_helper::to_string(row[5]);
+        };
 
-        auto row = result.fetchOne();
-        if (row.isNull()) return false;
+        // @cuiruoni+B2：用户名优先，避免“某人的用户名恰好等于另一人的邮箱”时进错账号
+        auto by_name = sess->sql(
+            "SELECT id, username, password_hash, salt, role, email "
+            "FROM users WHERE username = ? LIMIT 1")
+            .bind(username).execute();
+        auto name_row = by_name.fetchOne();
+        if (!name_row.isNull()) {
+            fill(name_row);
+            return true;
+        }
 
-        id = static_cast<int64_t>(row[0]);
-        db_username = mysqlx_helper::to_string(row[1]);
-        password_hash = mysqlx_helper::to_string(row[2]);
-        salt = mysqlx_helper::to_string(row[3]);
-        role = mysqlx_helper::to_string(row[4]);
-        email = row[5].isNull() ? "" : mysqlx_helper::to_string(row[5]);
+        // @cuiruoni+B2：邮箱有唯一索引，这里最多命中一条
+        auto by_email = sess->sql(
+            "SELECT id, username, password_hash, salt, role, email "
+            "FROM users WHERE email = ? LIMIT 1")
+            .bind(username).execute();
+        auto email_row = by_email.fetchOne();
+        if (email_row.isNull()) return false;
+        fill(email_row);
         return true;
     } catch (const std::exception& e) {
         spdlog::error("user_dao::find_by_username_or_email error: {}", e.what());
@@ -74,9 +108,11 @@ json::object find_profile_by_id(int64_t user_id) {
 
     try {
         auto result = sess->sql(
-            "SELECT id, username, email, role, bio, avatar, location, website, twitter, "
-            "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at "
-            "FROM users WHERE id = ?")
+            "SELECT u.id, u.username, u.email, u.role, u.bio, u.avatar, u.location, u.website, u.twitter, "
+            "DATE_FORMAT(u.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, "
+            "(SELECT COUNT(*) FROM follows f WHERE f.followee_id = u.id) AS follower_count, "
+            "(SELECT COUNT(*) FROM follows f WHERE f.follower_id = u.id) AS following_count "
+            "FROM users u WHERE u.id = ?")
             .bind(user_id).execute();
         auto row = result.fetchOne();
         if (row.isNull()) return json::object{};
@@ -92,6 +128,9 @@ json::object find_profile_by_id(int64_t user_id) {
         data["website"] = row[7].isNull() ? "" : mysqlx_helper::to_string(row[7]);
         data["twitter"] = row[8].isNull() ? "" : mysqlx_helper::to_string(row[8]);
         data["created_at"] = mysqlx_helper::to_string(row[9]);
+        // @cuiruoni+A3：个人中心展示粉丝/关注数，字段与 GET /api/users/:username 对齐
+        data["follower_count"] = mysqlx_helper::to_json(row[10]);
+        data["following_count"] = mysqlx_helper::to_json(row[11]);
         return data;
     } catch (const std::exception& e) {
         spdlog::error("user_dao::find_profile_by_id error: {}", e.what());
@@ -99,22 +138,53 @@ json::object find_profile_by_id(int64_t user_id) {
     }
 }
 
-bool update_profile(int64_t user_id, const std::string& email,
-                    const std::string& bio, const std::string& avatar,
-                    const std::string& location, const std::string& website,
-                    const std::string& twitter) {
+bool update_profile(int64_t user_id, const ProfilePatch& patch) {
     auto sess = MysqlPool::instance().acquire();
     if (!sess) return false;
 
     try {
-        sess->sql(
-            "UPDATE users SET email = ?, bio = ?, avatar = ?, location = ?, website = ?, twitter = ? "
-            "WHERE id = ?")
-            .bind(email).bind(bio).bind(avatar).bind(location).bind(website).bind(twitter)
-            .bind(user_id).execute();
+        // @cuiruoni+B3：只更新请求里出现的字段，缺省字段保持原值
+        std::string sql = "UPDATE users SET ";
+        std::vector<std::string> values;
+        auto add = [&](const char* column, const std::optional<std::string>& value,
+                       bool empty_as_null = false) {
+            if (!value) return;
+            if (!values.empty()) sql += ", ";
+            sql += column;
+            sql += empty_as_null ? " = NULLIF(?, '')" : " = ?";
+            values.push_back(*value);
+        };
+        add("email", patch.email, true);
+        add("bio", patch.bio);
+        add("avatar", patch.avatar);
+        add("location", patch.location);
+        add("website", patch.website);
+        add("twitter", patch.twitter);
+        if (values.empty()) return true;
+
+        sql += " WHERE id = ?";
+        auto stmt = sess->sql(sql);
+        for (const auto& value : values) stmt.bind(value);
+        stmt.bind(user_id).execute();
         return true;
     } catch (const std::exception& e) {
         spdlog::error("user_dao::update_profile error: {}", e.what());
+        return false;
+    }
+}
+
+bool find_email_by_id(int64_t user_id, std::string& email) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return false;
+
+    try {
+        auto result = sess->sql("SELECT email FROM users WHERE id = ?").bind(user_id).execute();
+        auto row = result.fetchOne();
+        if (row.isNull()) return false;
+        email = row[0].isNull() ? "" : mysqlx_helper::to_string(row[0]);
+        return true;
+    } catch (const std::exception& e) {
+        spdlog::error("user_dao::find_email_by_id error: {}", e.what());
         return false;
     }
 }
@@ -214,7 +284,8 @@ json::object find_public_profile_by_username(const std::string& username) {
         auto posts_result = sess->sql(
             "SELECT id, title, summary, status, view_count, "
             "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at "
-            "FROM posts WHERE user_id = ? AND status = 'published' ORDER BY created_at DESC")
+            "FROM posts WHERE user_id = ? AND status = 'published' AND visibility = 'public' "
+            "ORDER BY created_at DESC")
             .bind(uid).execute();
 
         json::array posts_arr;
@@ -251,19 +322,46 @@ int64_t count_all() {
     }
 }
 
-json::array list_users(int page, int page_size, int& total) {
+json::array list_users(int page, int page_size, int& total,
+                       const std::string& q, const std::string& sort,
+                       const std::string& order) {
     auto sess = MysqlPool::instance().acquire();
     if (!sess) return json::array{};
 
     try {
-        auto count_result = sess->sql("SELECT COUNT(*) FROM users").execute();
+        page = sanitize::clamp_page(page);
+        page_size = sanitize::clamp_page_size(page_size);
+        const std::string pattern = "%" + sanitize::escape_like(q) + "%";
+        const bool has_q = !q.empty();
+
+        std::string where;
+        if (has_q) {
+            // @cuiruoni+B6：ESCAPE '\\' 让用户输入的 % / _ 按字面量匹配
+            where = " WHERE (username LIKE ? ESCAPE '\\\\' OR email LIKE ? ESCAPE '\\\\')";
+        }
+
+        auto count_stmt = sess->sql("SELECT COUNT(*) FROM users" + where);
+        if (has_q) count_stmt.bind(pattern).bind(pattern);
+        auto count_result = count_stmt.execute();
         total = static_cast<int>(static_cast<int64_t>(count_result.fetchOne()[0]));
 
-        int offset = (page - 1) * page_size;
-        auto result = sess->sql(
+        static const std::unordered_map<std::string, std::string> sort_columns = {
+            {"id", "id"},
+            {"username", "username"},
+            {"email", "email"},
+            {"role", "role"},
+            {"created_at", "created_at"},
+        };
+        std::string list_sql =
             "SELECT id, username, email, role, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at "
-            "FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?")
-            .bind(page_size).bind(offset).execute();
+            "FROM users" + where +
+            dao_utils::build_order_by(sort, order, sort_columns, "created_at") +
+            " LIMIT ? OFFSET ?";
+
+        int offset = (page - 1) * page_size;
+        auto list_stmt = sess->sql(list_sql);
+        if (has_q) list_stmt.bind(pattern).bind(pattern);
+        auto result = list_stmt.bind(page_size).bind(offset).execute();
 
         json::array arr;
         for (auto row : result) {

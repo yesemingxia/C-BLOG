@@ -11,6 +11,9 @@ struct Post {
     std::string content_md;      // @cuiruoni+Markdown原文，用于编辑回显
     std::string content_html;    // @cuiruoni+渲染后的HTML，用于前端展示
     std::string summary;         // @cuiruoni+摘要，未提供时自动截取前200字符
+    std::string cover;           // @cuiruoni+封面 URL，空串表示无封面
+    // @cuiruoni+可见性：public=所有人 / members=已登录用户 / private=仅作者与管理员
+    std::string visibility = "public";
     std::vector<std::string> tags;
     int64_t user_id = 0;
     std::string author;          // @cuiruoni+作者用户名（JOIN users 获取）

@@ -5,14 +5,20 @@ import {
   LayoutDashboard, Users, FileText, MessageSquare, Mail, Film,
   LogOut, Search, Trash2, Shield, ChevronLeft,
   ChevronRight, TrendingUp, Eye, UserPlus, FileEdit,
-  ArrowUpDown, Menu, X, Check
+  ArrowUpDown, ArrowUp, ArrowDown, Menu, X, Check
 } from "lucide-react";
 import { toast } from "sonner";
 import "../styles/showcase-stage-pages.css";
 import ShowcaseBackdrop from "../showcase/components/ShowcaseBackdrop";
 import { useAuth } from "../components/auth/AuthProvider";
-import { adminApi, videosApi, checkBackendHealth, type AdminStats, type AdminUser, type AdminComment, type AdminContact, type VideoSubmission } from "../lib/api";
+import { adminApi, videosApi, checkBackendHealth, type AdminStats, type AdminUser, type AdminComment, type AdminContact, type AdminTrendPoint, type VideoSubmission } from "../lib/api";
 import type { ApiPost } from "../lib/api";
+
+type SortOrder = "asc" | "desc";
+interface SortState {
+  key: string;
+  order: SortOrder;
+}
 
 const sidebarItems = [
   { key: "dashboard", label: "仪表盘", icon: LayoutDashboard },
@@ -115,6 +121,30 @@ const SearchInput = ({ value, onChange, placeholder }: { value: string; onChange
   </div>
 );
 
+// @cuiruoni+B7：可点击表头。当前排序列显示上/下箭头，其余显示中性图标。
+const SortableTh = ({
+  label, sortKey, sort, onSort,
+}: {
+  label: string;
+  sortKey: string;
+  sort: SortState;
+  onSort: (key: string) => void;
+}) => (
+  <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--muted-foreground)]">
+    <button
+      type="button"
+      onClick={() => onSort(sortKey)}
+      className="flex items-center gap-1 transition-colors hover:text-[var(--foreground)]"
+      title={`按${label}排序`}
+    >
+      {label}
+      {sort.key === sortKey
+        ? (sort.order === "asc" ? <ArrowUp size={10} /> : <ArrowDown size={10} />)
+        : <ArrowUpDown size={10} className="opacity-30" />}
+    </button>
+  </th>
+);
+
 const statCardsConfig = [
   { label: "总用户数", icon: Users },
   { label: "总文章数", icon: FileText },
@@ -122,8 +152,10 @@ const statCardsConfig = [
   { label: "已发布文章", icon: Eye },
 ];
 
-const DashboardTab = ({ stats }: { stats: AdminStats }) => {
+const DashboardTab = ({ stats, trend }: { stats: AdminStats; trend: AdminTrendPoint[] }) => {
   const statValues = [stats.total_users, stats.total_posts, stats.total_comments, stats.published_posts];
+  // @cuiruoni+B8：纯 CSS 柱状图，不引入图表库
+  const trendMax = Math.max(1, ...trend.map((p) => p.count));
 
   return (
     <div className="space-y-6">
@@ -173,17 +205,45 @@ const DashboardTab = ({ stats }: { stats: AdminStats }) => {
               近12个月
             </span>
           </div>
-          <div style={{ height: 260 }} className="flex items-center justify-center">
-            <div className="text-center">
-              <TrendingUp size={40} className="text-[var(--muted-foreground)] mx-auto mb-3" />
-              <p className="text-sm text-[var(--muted-foreground)] font-display">
-                已发布 {stats.published_posts} 篇文章
-              </p>
-              <p className="text-xs mt-1 text-[var(--muted-foreground)] font-display">
-                共 {stats.total_posts} 篇，草稿 {stats.draft_posts} 篇
-              </p>
+          {trend.length === 0 ? (
+            <div style={{ height: 260 }} className="flex items-center justify-center">
+              <div className="text-center">
+                <TrendingUp size={40} className="text-[var(--muted-foreground)] mx-auto mb-3" />
+                <p className="text-sm text-[var(--muted-foreground)] font-display">
+                  已发布 {stats.published_posts} 篇文章
+                </p>
+                <p className="text-xs mt-1 text-[var(--muted-foreground)] font-display">
+                  共 {stats.total_posts} 篇，草稿 {stats.draft_posts} 篇
+                </p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex items-end gap-1.5 sm:gap-2 px-1 pb-1" style={{ height: 260 }}>
+              {trend.map((point) => {
+                const height = point.count === 0
+                  ? 3
+                  : Math.max(10, Math.round((point.count / trendMax) * 190));
+                return (
+                  <div
+                    key={point.month}
+                    className="flex-1 min-w-0 flex flex-col items-center justify-end gap-1.5"
+                    title={`${point.month} · ${point.count} 篇`}
+                  >
+                    <span className="text-[10px] text-[var(--muted-foreground)] font-mono">
+                      {point.count || ""}
+                    </span>
+                    <div
+                      className="w-full max-w-[34px] rounded-t-md bg-[var(--foreground)]/75 transition-all hover:bg-[var(--foreground)]"
+                      style={{ height }}
+                    />
+                    <span className="text-[9px] text-[var(--muted-foreground)] font-display whitespace-nowrap">
+                      {point.month.slice(5)}月
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </motion.div>
 
         <motion.div
@@ -228,21 +288,20 @@ const DashboardTab = ({ stats }: { stats: AdminStats }) => {
 };
 
 const UsersTab = ({
-  users, usersTotal, usersPage, usersSearch,
-  setUsersSearch, setUsersPage, onToggleRole, onDeleteUser,
+  users, usersTotal, usersPage, usersSearch, usersSort,
+  setUsersSearch, setUsersPage, onSortUsers, onToggleRole, onDeleteUser,
 }: {
   users: AdminUser[];
   usersTotal: number;
   usersPage: number;
   usersSearch: string;
+  usersSort: SortState;
   setUsersSearch: (v: string) => void;
   setUsersPage: (p: number) => void;
+  onSortUsers: (key: string) => void;
   onToggleRole: (user: AdminUser) => void;
   onDeleteUser: (id: number) => void;
 }) => {
-  const filteredUsers = usersSearch
-    ? users.filter((u) => u.username.toLowerCase().includes(usersSearch.toLowerCase()) || u.email.toLowerCase().includes(usersSearch.toLowerCase()))
-    : users;
   const usersTotalPages = Math.ceil(usersTotal / 10);
 
   return (
@@ -260,21 +319,16 @@ const UsersTab = ({
         <table className="w-full text-sm font-display">
           <thead>
             <tr className="border-b border-[var(--border)]">
-              {["ID", "用户名", "邮箱", "角色", "注册时间", "操作"].map((h) => (
-                <th
-                  key={h}
-                  className="px-4 py-3 text-left text-xs font-semibold text-[var(--muted-foreground)]"
-                >
-                  <div className="flex items-center gap-1">
-                    {h}
-                    {h !== "操作" && <ArrowUpDown size={10} className="opacity-30" />}
-                  </div>
-                </th>
-              ))}
+              <SortableTh label="ID" sortKey="id" sort={usersSort} onSort={onSortUsers} />
+              <SortableTh label="用户名" sortKey="username" sort={usersSort} onSort={onSortUsers} />
+              <SortableTh label="邮箱" sortKey="email" sort={usersSort} onSort={onSortUsers} />
+              <SortableTh label="角色" sortKey="role" sort={usersSort} onSort={onSortUsers} />
+              <SortableTh label="注册时间" sortKey="created_at" sort={usersSort} onSort={onSortUsers} />
+              <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--muted-foreground)]">操作</th>
             </tr>
           </thead>
           <tbody>
-            {filteredUsers.map((user, i) => (
+            {users.map((user, i) => (
               <motion.tr
                 key={user.id}
                 custom={i}
@@ -334,23 +388,22 @@ const UsersTab = ({
 };
 
 const PostsTab = ({
-  posts, postsTotal, postsPage, postsSearch, postsFilter,
-  setPostsSearch, setPostsPage, setPostsFilter, onDeletePost,
+  posts, postsTotal, postsPage, postsSearch, postsFilter, postsSort,
+  setPostsSearch, setPostsPage, setPostsFilter, onSortPosts, onDeletePost,
 }: {
   posts: (ApiPost & { status: string })[];
   postsTotal: number;
   postsPage: number;
   postsSearch: string;
   postsFilter: string;
+  postsSort: SortState;
   setPostsSearch: (v: string) => void;
   setPostsPage: (p: number) => void;
   setPostsFilter: (v: string) => void;
+  onSortPosts: (key: string) => void;
   onDeletePost: (id: number) => void;
 }) => {
   const postsTotalPages = Math.ceil(postsTotal / 10);
-  const filteredPosts = postsSearch
-    ? posts.filter((p) => p.title.toLowerCase().includes(postsSearch.toLowerCase()) || (p.author ?? "").toLowerCase().includes(postsSearch.toLowerCase()))
-    : posts;
 
   return (
     <div className="space-y-4">
@@ -379,21 +432,17 @@ const PostsTab = ({
         <table className="w-full text-sm font-display">
           <thead>
             <tr className="border-b border-[var(--border)]">
-              {["ID", "标题", "作者", "状态", "浏览量", "创建时间", "操作"].map((h) => (
-                <th
-                  key={h}
-                  className="px-4 py-3 text-left text-xs font-semibold text-[var(--muted-foreground)]"
-                >
-                  <div className="flex items-center gap-1">
-                    {h}
-                    {h !== "操作" && <ArrowUpDown size={10} className="opacity-30" />}
-                  </div>
-                </th>
-              ))}
+              <SortableTh label="ID" sortKey="id" sort={postsSort} onSort={onSortPosts} />
+              <SortableTh label="标题" sortKey="title" sort={postsSort} onSort={onSortPosts} />
+              <SortableTh label="作者" sortKey="author" sort={postsSort} onSort={onSortPosts} />
+              <SortableTh label="状态" sortKey="status" sort={postsSort} onSort={onSortPosts} />
+              <SortableTh label="浏览量" sortKey="view_count" sort={postsSort} onSort={onSortPosts} />
+              <SortableTh label="创建时间" sortKey="created_at" sort={postsSort} onSort={onSortPosts} />
+              <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--muted-foreground)]">操作</th>
             </tr>
           </thead>
           <tbody>
-            {filteredPosts.map((post, i) => (
+            {posts.map((post, i) => (
               <motion.tr
                 key={post.id}
                 custom={i}
@@ -459,9 +508,6 @@ const CommentsTab = ({
   onDeleteComment: (id: number) => void;
 }) => {
   const commentsTotalPages = Math.ceil(commentsTotal / 10);
-  const filteredComments = commentsSearch
-    ? comments.filter((c) => c.content.toLowerCase().includes(commentsSearch.toLowerCase()) || c.author_name.toLowerCase().includes(commentsSearch.toLowerCase()))
-    : comments;
 
   return (
     <div className="space-y-4">
@@ -489,7 +535,7 @@ const CommentsTab = ({
             </tr>
           </thead>
           <tbody>
-            {filteredComments.map((comment, i) => (
+            {comments.map((comment, i) => (
               <motion.tr
                 key={comment.id}
                 custom={i}
@@ -510,7 +556,9 @@ const CommentsTab = ({
                   {comment.author_name}
                 </td>
                 <td className="px-4 py-3 text-xs max-w-[140px] truncate text-[var(--foreground)]">
-                  {comment.post_title}
+                  {/* @cuiruoni+原读 comment.post_title，接口发的是嵌套 comment.post.title —— 读错字段时
+                      这一列恒为空，看起来像「评论都没有所属文章」。文章已删除时后端回空串，用 — 占位。 */}
+                  {comment.post?.title || "—"}
                 </td>
                 <td className="px-4 py-3 text-xs text-[var(--muted-foreground)]">
                   {comment.created_at}
@@ -546,10 +594,6 @@ const ContactsTab = ({
   onDeleteContact: (id: number) => void;
 }) => {
   const contactsTotalPages = Math.ceil(contactsTotal / 10);
-  const filteredContacts = contactsSearch
-    ? contacts.filter((c) => c.message.toLowerCase().includes(contactsSearch.toLowerCase())
-        || c.name.toLowerCase().includes(contactsSearch.toLowerCase()))
-    : contacts;
 
   return (
     <div className="space-y-4">
@@ -562,13 +606,13 @@ const ContactsTab = ({
         </div>
       </div>
 
-      {filteredContacts.length === 0 ? (
+      {contacts.length === 0 ? (
         <div className="rounded-2xl card p-10 text-center text-sm text-[var(--muted-foreground)] font-display">
           暂无留言 —— 用户在展示页「联系」场景提交的反馈会出现在这里
         </div>
       ) : (
         <div className="space-y-3">
-          {filteredContacts.map((c, i) => (
+          {contacts.map((c, i) => (
             <motion.div
               key={c.id}
               custom={i}
@@ -824,26 +868,34 @@ const Admin = () => {
     total_users: 0, total_posts: 0, total_comments: 0, published_posts: 0, draft_posts: 0,
   });
 
+  const [trend, setTrend] = useState<AdminTrendPoint[]>([]);
+
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [usersTotal, setUsersTotal] = useState(0);
   const [usersPage, setUsersPage] = useState(1);
   const [usersSearch, setUsersSearch] = useState("");
+  const [usersQuery, setUsersQuery] = useState("");
+  const [usersSort, setUsersSort] = useState<SortState>({ key: "created_at", order: "desc" });
 
   const [posts, setPosts] = useState<(ApiPost & { status: string })[]>([]);
   const [postsTotal, setPostsTotal] = useState(0);
   const [postsPage, setPostsPage] = useState(1);
   const [postsSearch, setPostsSearch] = useState("");
+  const [postsQuery, setPostsQuery] = useState("");
   const [postsFilter, setPostsFilter] = useState("all");
+  const [postsSort, setPostsSort] = useState<SortState>({ key: "created_at", order: "desc" });
 
   const [comments, setComments] = useState<AdminComment[]>([]);
   const [commentsTotal, setCommentsTotal] = useState(0);
   const [commentsPage, setCommentsPage] = useState(1);
   const [commentsSearch, setCommentsSearch] = useState("");
+  const [commentsQuery, setCommentsQuery] = useState("");
 
   const [contacts, setContacts] = useState<AdminContact[]>([]);
   const [contactsTotal, setContactsTotal] = useState(0);
   const [contactsPage, setContactsPage] = useState(1);
   const [contactsSearch, setContactsSearch] = useState("");
+  const [contactsQuery, setContactsQuery] = useState("");
 
   // @cuiruoni+视频投稿审核（方案 C 轮换池）
   const [videoSubs, setVideoSubs] = useState<VideoSubmission[]>([]);
@@ -859,31 +911,85 @@ const Admin = () => {
 
   useEffect(() => {
     adminApi.stats().then(setStats);
+    adminApi.trend(12).then(setTrend).catch(() => setTrend([]));
   }, []);
 
+  // @cuiruoni+B6：搜索改为服务端过滤，输入 300ms 防抖后重新从第 1 页请求
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setUsersQuery(usersSearch.trim());
+      setUsersPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [usersSearch]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setPostsQuery(postsSearch.trim());
+      setPostsPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [postsSearch]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setCommentsQuery(commentsSearch.trim());
+      setCommentsPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [commentsSearch]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setContactsQuery(contactsSearch.trim());
+      setContactsPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [contactsSearch]);
+
   const loadUsers = useCallback(async () => {
-    const res = await adminApi.listUsers(usersPage, 10);
+    const res = await adminApi.listUsers(usersPage, 10, {
+      q: usersQuery, sort: usersSort.key, order: usersSort.order,
+    });
     setUsers(res.users);
     setUsersTotal(res.total);
-  }, [usersPage]);
+  }, [usersPage, usersQuery, usersSort]);
 
   const loadPosts = useCallback(async () => {
-    const res = await adminApi.listPosts(postsPage, 10, postsFilter);
+    const res = await adminApi.listPosts(postsPage, 10, postsFilter, {
+      q: postsQuery, sort: postsSort.key, order: postsSort.order,
+    });
     setPosts(res.posts.map((p) => ({ ...p, status: p.status ?? "published" })));
     setPostsTotal(res.total);
-  }, [postsPage, postsFilter]);
+  }, [postsPage, postsFilter, postsQuery, postsSort]);
 
   const loadComments = useCallback(async () => {
-    const res = await adminApi.listComments(commentsPage, 10);
+    const res = await adminApi.listComments(commentsPage, 10, { q: commentsQuery });
     setComments(res.comments);
     setCommentsTotal(res.total);
-  }, [commentsPage]);
+  }, [commentsPage, commentsQuery]);
 
   const loadContacts = useCallback(async () => {
-    const res = await adminApi.listContacts(contactsPage, 10);
+    const res = await adminApi.listContacts(contactsPage, 10, { q: contactsQuery });
     setContacts(res.contacts);
     setContactsTotal(res.total);
-  }, [contactsPage]);
+  }, [contactsPage, contactsQuery]);
+
+  // @cuiruoni+B7：点击表头切换升/降序，并回到第 1 页
+  type SortSetter = (updater: (prev: SortState) => SortState) => void;
+  const toggleSort = useCallback((setter: SortSetter, key: string) => {
+    setter((prev) => prev.key === key
+      ? { key, order: prev.order === "asc" ? "desc" : "asc" }
+      : { key, order: key === "created_at" ? "desc" : "asc" });
+  }, []);
+  const handleSortUsers = useCallback((key: string) => {
+    toggleSort(setUsersSort, key);
+    setUsersPage(1);
+  }, [toggleSort]);
+  const handleSortPosts = useCallback((key: string) => {
+    toggleSort(setPostsSort, key);
+    setPostsPage(1);
+  }, [toggleSort]);
 
   const loadVideoSubs = useCallback(async () => {
     const res = await videosApi.adminList(videosFilter, videoSubsPage, 10);
@@ -894,19 +1000,19 @@ const Admin = () => {
   // @cuiruoni+P1修复：翻页、切换状态筛选或切换Tab时重新请求数据，修复分页不生效的问题
   useEffect(() => {
     if (activeTab === "users") loadUsers();
-  }, [activeTab, usersPage, loadUsers]);
+  }, [activeTab, loadUsers]);
 
   useEffect(() => {
     if (activeTab === "posts") loadPosts();
-  }, [activeTab, postsPage, postsFilter, loadPosts]);
+  }, [activeTab, loadPosts]);
 
   useEffect(() => {
     if (activeTab === "comments") loadComments();
-  }, [activeTab, commentsPage, loadComments]);
+  }, [activeTab, loadComments]);
 
   useEffect(() => {
     if (activeTab === "contacts") loadContacts();
-  }, [activeTab, contactsPage, loadContacts]);
+  }, [activeTab, loadContacts]);
 
   useEffect(() => {
     if (activeTab === "videos") loadVideoSubs();
@@ -1141,15 +1247,17 @@ const Admin = () => {
               exit="exit"
               transition={{ duration: 0.25, ease: "easeInOut" as const }}
             >
-              {activeTab === "dashboard" && <DashboardTab stats={stats} />}
+              {activeTab === "dashboard" && <DashboardTab stats={stats} trend={trend} />}
               {activeTab === "users" && (
                 <UsersTab
                   users={users}
                   usersTotal={usersTotal}
                   usersPage={usersPage}
                   usersSearch={usersSearch}
+                  usersSort={usersSort}
                   setUsersSearch={setUsersSearch}
                   setUsersPage={setUsersPage}
+                  onSortUsers={handleSortUsers}
                   onToggleRole={handleToggleRole}
                   onDeleteUser={handleDeleteUser}
                 />
@@ -1161,9 +1269,11 @@ const Admin = () => {
                   postsPage={postsPage}
                   postsSearch={postsSearch}
                   postsFilter={postsFilter}
+                  postsSort={postsSort}
                   setPostsSearch={setPostsSearch}
                   setPostsPage={setPostsPage}
                   setPostsFilter={setPostsFilter}
+                  onSortPosts={handleSortPosts}
                   onDeletePost={handleDeletePost}
                 />
               )}

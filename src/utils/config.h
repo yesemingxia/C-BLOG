@@ -2,6 +2,7 @@
 
 #include <boost/json.hpp>
 #include <string>
+#include <vector>
 
 namespace json = boost::json;
 
@@ -37,10 +38,17 @@ public:
     std::string jwt_secret() const;
     int jwt_expire_seconds() const;
     std::string cors_allowed_origin() const;
-    int max_request_body_bytes() const;
+    // @cuiruoni+B14：优先读数组 cors_allowed_origins，回退单值 cors_allowed_origin
+    std::vector<std::string> cors_allowed_origins() const;
+    // @cuiruoni+安全：是否相信 X-Real-IP 请求头。默认 false —— 只有后端不直接对外、
+    // @cuiruoni+且代理会用 $remote_addr 覆写该头时才开；开了以后限流/浏览量去重才按头里的 IP 计。
+    bool trust_proxy_real_ip() const;
     int server_threads() const;
     std::string log_level() const;
     std::string log_file() const;
+    // @cuiruoni+落盘资源根目录（图片/视频/分片）。相对值按「配置文件所属项目根」解析，
+    // @cuiruoni+不再随进程工作目录漂移 —— 详见 utils/storage.h
+    std::string storage_root() const;
 
 private:
     Config() = default;

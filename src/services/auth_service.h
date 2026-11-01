@@ -23,13 +23,15 @@ bool extract_user_from_token(const http::request<http::string_body>& req,
 bool extract_admin_from_token(const http::request<http::string_body>& req,
                               int64_t& user_id, std::string& username, std::string& role);
 
-// @cuiruoni+记录登录失败次数，5次失败后锁定账号30分钟
-void record_login_failure(const std::string& username);
+// @cuiruoni+记录登录失败次数（两层：按 用户名+客户端IP、按 用户名），达到阈值即锁定
+// @cuiruoni+client_ip 必须是 Session 归一后的 X-Client-IP，不能是客户端自带的 X-Real-IP，
+// @cuiruoni+否则攻击者换个头就等于换个桶，锁定形同不存在
+void record_login_failure(const std::string& username, const std::string& client_ip);
 
-// @cuiruoni+检查账号是否被锁定（登录失败次数过多），返回true表示被锁定
-bool is_account_locked(const std::string& username);
+// @cuiruoni+是否已锁定（任一层达到阈值即 true）
+bool is_account_locked(const std::string& username, const std::string& client_ip);
 
-// @cuiruoni+登录成功后清除失败计数
-void clear_login_failures(const std::string& username);
+// @cuiruoni+登录成功后清除该 用户名(+本IP) 的失败计数
+void clear_login_failures(const std::string& username, const std::string& client_ip);
 
 }

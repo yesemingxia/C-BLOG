@@ -3,6 +3,7 @@
 #include "services/auth_service.h"
 #include "utils/logger.h"
 #include "utils/response.h"
+#include "utils/storage.h"
 #include "utils/password.h"
 
 #include <boost/json.hpp>
@@ -17,8 +18,7 @@ namespace http = boost::beast::http;
 
 namespace {
 
-// @cuiruoni+图片存储目录（相对工作目录；uploads/ 已在 .gitignore 中）
-constexpr const char* kImageDir = "uploads/images";
+// @cuiruoni+图片目录由启动时定死的 storage 根派生（原来写死 "uploads/images"，位置随进程工作目录漂移）
 // @cuiruoni+base64 最大长度：约 10MB（对应原图 ~7.5MB），博客插图足够
 constexpr size_t kMaxImageBase64Len = 10 * 1024 * 1024;
 
@@ -55,7 +55,11 @@ std::string mime_to_ext(const std::string& mime) {
 
 // @cuiruoni+生成不重复文件名：毫秒时间戳 + 64bit 随机 hex，避免并发覆盖与枚举
 std::string make_filename(const std::string& ext) {
-    static std::mt19937_64 rng{std::random_device{}()};
+    // @cuiruoni+thread_local：server 是多线程的（每个连接一个 IO 线程），函数里的 static 对象
+    // @cuiruoni+所有线程共用。mt19937_64 每次 operator() 都会改写内部状态，两个线程同时取号
+    // @cuiruoni+就是数据竞争（UB），状态被打断时可能吐出重复值 —— 毫秒时间戳也相同的话，
+    // @cuiruoni+后一张图会把前一张同名文件直接 ios::trunc 覆盖掉。
+    thread_local std::mt19937_64 rng{std::random_device{}()};
     auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     char buf[32];
@@ -131,9 +135,9 @@ http::response<http::string_body> handle_upload_image(
             return res;
         }
 
-        std::filesystem::create_directories(kImageDir);
+        std::filesystem::create_directories(storage::images());
         std::string name = make_filename(mime_to_ext(image_mime));
-        std::string path = std::string(kImageDir) + "/" + name;
+        std::string path = storage::images() + "/" + name;
 
         std::ofstream out(path, std::ios::binary | std::ios::trunc);
         if (!out) {
@@ -199,7 +203,7 @@ http::response<http::string_body> handle_get_file(
         }
     }
 
-    std::string path = std::string(kImageDir) + "/" + name;
+    std::string path = storage::images() + "/" + name;
     std::ifstream in(path, std::ios::binary);
     if (!in) {
         http::response<http::string_body> res{http::status::not_found, req.version()};

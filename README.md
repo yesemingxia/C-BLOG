@@ -14,7 +14,6 @@
 - CORS 跨域中间件
 - PBKDF2 密码哈希（OpenSSL）
 - spdlog 高性能日志
-- 图片风格转换（上传照片 → 通义万相 AI 重绘为纸刊插画海报）
 
 ### 前端
 
@@ -160,7 +159,7 @@ npm install
 npm run dev
 ```
 
-浏览器访问 `http://localhost:5173`，后端 API 默认运行在 `http://localhost:8088`。
+浏览器访问 `http://localhost:5173`，后端 API 默认运行在 `http://localhost:8089`。
 
 ## 配置说明
 
@@ -169,7 +168,7 @@ npm run dev
 ```json
 {
     "server_host": "0.0.0.0",
-    "server_port": 8088,
+    "server_port": 8089,
     "db_host": "<your_db_host>",
     "db_port": 33060,
     "db_user": "<your_db_user>",
@@ -182,12 +181,22 @@ npm run dev
     "redis_pool_size": 4,
     "jwt_secret": "<your_jwt_secret>",
     "jwt_expire_seconds": 86400,
-    "dashscope_api_key": "<your_dashscope_api_key>",
-    "dashscope_model": "wan2.7-image",
     "log_level": "info",
-    "log_file": ""
+    "log_file": "",
+    "trust_proxy_real_ip": false,
+    "storage_root": "uploads"
 }
 ```
+
+- `storage_root`（默认 `uploads`）：图片 / 视频 / 上传分片的落盘根目录。**相对值按「配置文件所属项目根」解析**，
+  不再随进程工作目录变化（以前从 `build/Release` 启动会写到 `build/Release/uploads`，换回仓库根启动就读不到，
+  表现为「上传成功但 404」）。要放去别处就写绝对路径，例如 `/var/lib/blog-uploads` 或 `E:/blog/uploads`。
+
+- `trust_proxy_real_ip`（默认 `false`）：后端怎么认定客户端 IP。限流桶和浏览量去重都按这个 IP 计，
+  而 `X-Real-IP` / `X-Client-IP` 都是客户端可自带的请求头，所以默认只认 TCP 对端地址。
+  只有「Nginx 用 `$remote_addr` 覆写 `X-Real-IP`，且 8089 不直接对外暴露」时才设 `true`
+  （或临时用环境变量 `TRUST_PROXY_REAL_IP=true` 覆盖）。跑 `tests/` 下的接口回归必须开它，
+  因为脚本靠 `X-Real-IP` 给每个模拟客户端分桶。
 
 > **注意**：`config/config.json` 包含敏感信息，已在 `.gitignore` 中排除，不会被提交到仓库。
 
@@ -206,7 +215,3 @@ npm run dev
 | POST | `/api/posts/:id/comments` | 发表评论 | - |
 | GET | `/api/tags` | 获取标签列表 | - |
 | GET | `/api/search?q=keyword` | 全文搜索 | - |
-| GET | `/api/styles` | 获取风格列表 | - |
-| POST | `/api/styles/transfer` | 提交图片风格转换（base64 图片 + 风格 ID） | - |
-| GET | `/api/styles/tasks/:id` | 查询风格转换任务状态 | - |
-| GET | `/api/styles/file/:name` | 获取生成结果图片 | - |

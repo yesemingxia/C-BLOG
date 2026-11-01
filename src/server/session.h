@@ -26,6 +26,7 @@ private:
     void read_request();
     void handle_request();
     void write_response();
+    void write_file_response();
     void close();
 
     beast::tcp_stream stream_;                   // @cuiruoni+TCP流，封装socket支持超时等特性
@@ -33,6 +34,7 @@ private:
     http::request<http::string_body> req_;        // @cuiruoni+当前请求对象
     std::unique_ptr<http::request_parser<http::string_body>> parser_; // @cuiruoni+P0修复：请求解析器，内置body_limit防超大请求
     http::response<http::string_body> res_;       // @cuiruoni+当前响应对象
+    FileRouteResult file_result_;                 // @cuiruoni+B10：文件流式响应（写完后才可析构）
     Router& router_;                              // @cuiruoni+路由器引用，用于请求分发
     bool keep_alive_ = false;                     // @cuiruoni+是否保持连接复用
 };

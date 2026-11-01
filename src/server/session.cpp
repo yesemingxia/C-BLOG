@@ -2,6 +2,7 @@
 
 #include "utils/logger.h"
 #include "utils/config.h"
+#include "utils/client_ip.h"
 #include "middleware/cors_middleware.h"
 #include "middleware/rate_limiter.h"
 
@@ -98,13 +99,15 @@ void Session::handle_request() {
 
         // @cuiruoni+P1修复：无反向代理时回退到TCP对端地址作为客户端IP，
         // 避免开发环境所有请求共用"unknown"限流桶/浏览量去重键
-        if (req_.find("X-Real-IP") == req_.end()) {
-            beast::error_code ec;
-            auto remote = stream_.socket().remote_endpoint(ec);
-            if (!ec) {
-                req_.set("X-Client-IP", remote.address().to_string());
-            }
-        }
+        // @cuiruoni+安全：X-Real-IP / X-Client-IP 客户端都能自带，默认不认账；
+        // @cuiruoni+这里算出的唯一口径会**覆盖**写进 X-Client-IP，下游（限流、浏览量去重）只读它
+        beast::error_code ec;
+        auto remote = stream_.socket().remote_endpoint(ec);
+        std::string peer_ip = ec ? std::string() : remote.address().to_string();
+        auto real_it = req_.find("X-Real-IP");
+        std::string real_ip_value = real_it == req_.end() ? std::string() : std::string(real_it->value());
+        req_.set("X-Client-IP", client_ip::resolve(
+            real_ip_value, peer_ip, Config::instance().trust_proxy_real_ip()));
 
         // @cuiruoni+先执行CORS中间件，为响应添加跨域头
         cors_middleware::cors_handle_request(req_, res_);
@@ -120,11 +123,10 @@ void Session::handle_request() {
         else if (path.find("/api/posts/") != std::string::npos && path.find("/comments") != std::string::npos) endpoint = "comment";
         else if (path == "/api/contact") endpoint = "contact";
 
-        // @cuiruoni+优先使用X-Real-IP（Nginx设置），回退X-Client-IP（本机直连时由Session写入）
-        std::string client_ip = req_.find("X-Real-IP") != req_.end()
-            ? std::string(req_["X-Real-IP"])
-            : (req_.find("X-Client-IP") != req_.end() ? std::string(req_["X-Client-IP"]) : "unknown");
-        if (!rate_limiter::check(client_ip, endpoint)) {
+        // @cuiruoni+安全：统一用上面归一好的 X-Client-IP，不再各自决定信哪个头
+        std::string rate_limit_ip = req_.find("X-Client-IP") != req_.end()
+            ? std::string(req_["X-Client-IP"]) : std::string("unknown");
+        if (!rate_limiter::check(rate_limit_ip, endpoint)) {
             res_.result(http::status::too_many_requests);
             res_.set(http::field::content_type, "application/json");
             res_.body() = R"({"code":429,"message":"Too many requests, please try again later","data":null})";
@@ -146,10 +148,38 @@ void Session::handle_request() {
             return;
         }
 
+        // @cuiruoni+B10：先尝试文件路由（视频 Range/HEAD）。文件响应不经过
+        // @cuiruoni+route_request 的 JSON 合并逻辑，避免把 file_body 搬进 string_body。
+        file_result_ = FileRouteResult{};
+        if (router_.route_file_request(req_, file_result_)) {
+            if (file_result_.is_file) {
+                auto& file_res = file_result_.file;
+                file_res.version(req_.version());
+                file_res.set(http::field::server, "cpp-blog/0.1.0");
+                cors_middleware::apply_cors(req_, file_res);
+                file_res.keep_alive(keep_alive_);
+                file_res.prepare_payload();
+                write_file_response();
+                return;
+            }
+
+            // 错误/HEAD 走普通字符串响应；handler 已设置好 Content-Length（HEAD 场景）
+            res_ = std::move(file_result_.text);
+            res_.set(http::field::server, "cpp-blog/0.1.0");
+            cors_middleware::apply_cors(req_, res_);
+            res_.keep_alive(keep_alive_);
+            write_response();
+            return;
+        }
+
         router_.route_request(req_, res_);
 
         // @cuiruoni+统一设置响应头，CORS头已由cors_middleware正确设置，此处不再覆盖
-        res_.set(http::field::content_type, "application/json");
+        // @cuiruoni+仅在 handler 未声明 Content-Type 时回退为 JSON：
+        // 图片/视频接口自行设置了 image/*、video/*，无条件覆盖会让浏览器按 JSON 处理媒体
+        if (res_.find(http::field::content_type) == res_.end()) {
+            res_.set(http::field::content_type, "application/json");
+        }
         // @cuiruoni+根据keep_alive_状态设置Connection头
         res_.keep_alive(keep_alive_);
         res_.prepare_payload();
@@ -185,6 +215,24 @@ void Session::write_response() {
                 self->read_request();
             } else {
                 // @cuiruoni+短连接：响应完成后关闭连接
+                self->close();
+            }
+        });
+}
+
+// @cuiruoni+B10：文件响应异步写。file_result_ 是成员，保证文件句柄活到写完成。
+void Session::write_file_response() {
+    auto self = shared_from_this();
+    http::async_write(stream_, file_result_.file,
+        [self](beast::error_code ec, std::size_t) {
+            if (ec) {
+                spdlog::warn("Write file response error: {}", ec.message());
+                self->close();
+                return;
+            }
+            if (self->keep_alive_) {
+                self->read_request();
+            } else {
                 self->close();
             }
         });

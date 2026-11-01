@@ -37,6 +37,16 @@ echo       cmake, node, npm are ready
 echo.
 echo [2/5] Checking config file...
 
+:: @cuiruoni+先生成一个够长的 jwt_secret，供「本机还没有配置」时新建配置用。
+:: @cuiruoni+长度下限必须和 utils/config.cpp 的守卫一致（至少 32 位）：原先这里固定拼 4 个
+:: @cuiruoni+%RANDOM%（每个 1~5 位，合计 13~29 位），守卫一收紧，第一次用 start.bat 起服务的人
+:: @cuiruoni+就会直接被拒绝启动 —— 而报错信息指向的是配置文件，可他根本没写过这个文件。
+:: @cuiruoni+循环到长度超过 32 为止（取第 33 个字符判空）。
+set "GEN_SECRET=cpp-blog-"
+:gensecret_loop
+set "GEN_SECRET=!GEN_SECRET!!RANDOM!!RANDOM!"
+if "!GEN_SECRET:~32,1!"=="" goto gensecret_loop
+
 set "CONFIG_PATH="
 
 if exist "%ROOT%\config\config.json" (
@@ -51,7 +61,7 @@ if exist "%ROOT%\config\config.json" (
     >"%ROOT%\config\config.json" (
         echo {
         echo   "server_host": "0.0.0.0",
-        echo   "server_port": 8088,
+        echo   "server_port": 8089,
         echo   "db_host": "127.0.0.1",
         echo   "db_port": 33060,
         echo   "db_user": "root",
@@ -62,7 +72,7 @@ if exist "%ROOT%\config\config.json" (
         echo   "redis_port": 6379,
         echo   "redis_password": "",
         echo   "redis_pool_size": 4,
-        echo   "jwt_secret": "cpp-blog-secret-key",
+        echo   "jwt_secret": "!GEN_SECRET!",
         echo   "jwt_expire_seconds": 86400,
         echo   "log_level": "info",
         echo   "log_file": ""
@@ -70,6 +80,9 @@ if exist "%ROOT%\config\config.json" (
     )
     set "CONFIG_PATH=%ROOT%\config\config.json"
     echo [HINT] Please edit config\config.json to match your MySQL and Redis settings
+    echo [HINT] For anything beyond local testing, replace jwt_secret with your own random
+    echo        value ^(e.g. openssl rand -hex 32^) or set the JWT_SECRET environment variable -
+    echo        the one written above comes from the weak batch %%RANDOM%% generator.
 )
 
 :: -- 3. Build C++ backend (skip if already built) --
@@ -141,7 +154,7 @@ cd /d "%ROOT%"
 echo.
 echo ============================================
 echo    Started successfully!
-echo    Backend:  http://localhost:8088
+echo    Backend:  http://localhost:8089
 echo    Frontend: http://localhost:5173
 echo ============================================
 echo.

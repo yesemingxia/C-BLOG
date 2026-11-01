@@ -16,6 +16,10 @@ export interface ApiPost {
   created_at?: string;
   updated_at?: string;
   status?: string;
+  /** 可见性：public / members / private（后端 A2 起返回） */
+  visibility?: string;
+  /** 后端按正文长度预计算的阅读时长（分钟），列表卡片优先使用 */
+  read_minutes?: number;
   tags?: string[];
   likes?: number;
   like_count?: number;
@@ -32,7 +36,7 @@ export interface ApiComment {
   post_id: number;
   author?: string;
   author_name?: string;
-  author_email?: string;
+  /** B5：author_email 只入库，公开评论接口不再回传（匿名可读的列表不能公示邮箱） */
   author_id?: number;
   content: string;
   parent_id?: number | null;
@@ -59,6 +63,11 @@ export interface AdminStats {
   draft_posts: number;
 }
 
+export interface AdminTrendPoint {
+  month: string;
+  count: number;
+}
+
 export interface AdminUser {
   id: number;
   username: string;
@@ -70,7 +79,8 @@ export interface AdminUser {
 export interface AdminComment {
   id: number;
   post_id: number;
-  post_title?: string;
+  /** @cuiruoni+接口发的是嵌套 post:{id,title}（comment_dao::admin_list_comments），没有平铺的 post_title */
+  post?: { id: number; title: string };
   author_name: string;
   author_email?: string;
   content: string;
@@ -107,6 +117,9 @@ export interface ApiNotification {
   actor_name: string;
   content: string;
   post_title?: string;
+  /** B12：可跳转目标；follow/system 可能为 null */
+  post_id?: number | null;
+  actor_id?: number | null;
   is_read: boolean;
   created_at: string;
 }
@@ -307,21 +320,31 @@ export const postsApi = {
 };
 
 export const commentsApi = {
-  list: async (postId: number): Promise<ApiComment[]> => {
-    const res = await request<ApiResponse<ApiComment[] | { comments: ApiComment[] }>>(`/posts/${postId}/comments`);
-    return Array.isArray(res.data) ? res.data : res.data?.comments ?? [];
+  list: async (postId: number, page = 1, pageSize = 50): Promise<{ comments: ApiComment[]; total: number; page: number; pageSize: number }> => {
+    const res = await request<ApiResponse<ApiComment[] | { comments: ApiComment[]; total?: number; page?: number; page_size?: number }>>(
+      `/posts/${postId}/comments?page=${page}&page_size=${pageSize}`
+    );
+    const d = res.data;
+    const comments = Array.isArray(d) ? d : d?.comments ?? [];
+    return {
+      comments,
+      total: d && !Array.isArray(d) ? d.total ?? comments.length : comments.length,
+      page: d && !Array.isArray(d) ? d.page ?? page : page,
+      pageSize: d && !Array.isArray(d) ? d.page_size ?? pageSize : pageSize,
+    };
   },
 
-  create: async (postId: number, content: string): Promise<ApiComment> => {
-    const user = JSON.parse(localStorage.getItem("blog_user") ?? "{}");
+  /** B5：作者删除自己的评论（管理员可删任意评论） */
+  remove: async (commentId: number): Promise<void> => {
+    await request(`/comments/${commentId}`, { method: "DELETE", headers: authHeaders() });
+  },
+
+  create: async (postId: number, content: string, parentId?: number): Promise<ApiComment> => {
+    // @cuiruoni+B5：作者身份只由 token 决定，不再从 localStorage 拼 author_name/email 传给后端
     const res = await request<ApiResponse<ApiComment>>(`/posts/${postId}/comments`, {
       method: "POST",
       headers: authHeaders(),
-      body: JSON.stringify({
-        content,
-        author_name: user.username ?? "匿名用户",
-        author_email: user.email ?? "",
-      }),
+      body: JSON.stringify(parentId ? { content, parent_id: parentId } : { content }),
     });
     if (!res.data) throw new Error("Failed to create comment");
     return res.data;
@@ -336,23 +359,49 @@ export const tagsApi = {
     return Array.isArray(tags) ? tags : [];
   },
 
-  posts: async (tagId: number): Promise<ApiPost[]> => {
-    const res = await request<any>(`/tags/${tagId}/posts`);
-    // 后端返回 { code, data: { posts: [...] } } 或 { code, data: [...] }
+  posts: async (tagId: number, page = 1, pageSize = 10): Promise<{ posts: ApiPost[]; total: number }> => {
+    const res = await request<any>(`/tags/${tagId}/posts?page=${page}&page_size=${pageSize}`);
+    // 后端返回 { code, data: { posts: [...], total } } 或 { code, data: [...] }
     const posts = res?.data?.posts ?? res?.data ?? [];
-    return (Array.isArray(posts) ? posts : []).map(normalizePost);
+    return {
+      posts: (Array.isArray(posts) ? posts : []).map(normalizePost),
+      total: res?.data?.total ?? (Array.isArray(posts) ? posts.length : 0),
+    };
   },
 };
 
 export const searchApi = {
-  search: async (query: string): Promise<ApiPost[]> => {
+  search: async (query: string, page = 1, pageSize = 10): Promise<{ posts: ApiPost[]; total: number }> => {
     // @cuiruoni+P0修复：后端返回 {code, data: {query, results, total}}，兼容数组形态
-    const res = await request<ApiResponse<ApiPost[] | { results: ApiPost[] }>>(`/search?q=${encodeURIComponent(query)}`);
+    const res = await request<ApiResponse<ApiPost[] | { results: ApiPost[]; total?: number }>>(
+      `/search?q=${encodeURIComponent(query)}&page=${page}&page_size=${pageSize}`
+    );
     const data = res.data;
     const posts = Array.isArray(data) ? data : data?.results ?? [];
-    return posts.map(normalizePost);
+    return {
+      posts: posts.map(normalizePost),
+      total: data && !Array.isArray(data) ? data.total ?? posts.length : posts.length,
+    };
   },
 };
+
+export interface AdminListParams {
+  q?: string;
+  sort?: string;
+  order?: "asc" | "desc";
+}
+
+function adminQuery(page: number, pageSize: number, params?: AdminListParams, extra?: Record<string, string>): string {
+  const qs = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+    ...(extra ?? {}),
+  });
+  if (params?.q) qs.set("q", params.q);
+  if (params?.sort) qs.set("sort", params.sort);
+  if (params?.order) qs.set("order", params.order);
+  return qs.toString();
+}
 
 export const adminApi = {
   stats: async (): Promise<AdminStats> => {
@@ -360,8 +409,17 @@ export const adminApi = {
     return res.data ?? { total_users: 0, total_posts: 0, total_comments: 0, published_posts: 0, draft_posts: 0 };
   },
 
-  listUsers: async (page = 1, pageSize = 10): Promise<{ users: AdminUser[]; total: number }> => {
-    const res = await request<ApiResponse<{ users: AdminUser[]; total: number }>>(`/admin/users?page=${page}&page_size=${pageSize}`, { headers: authHeaders() });
+  /** B8：近 N 个月发布趋势（空月份后端已补 0） */
+  trend: async (months = 12): Promise<AdminTrendPoint[]> => {
+    const res = await request<ApiResponse<{ months: number; points: AdminTrendPoint[] }>>(
+      `/admin/stats/trend?months=${months}`, { headers: authHeaders() }
+    );
+    return res.data?.points ?? [];
+  },
+
+  listUsers: async (page = 1, pageSize = 10, params?: AdminListParams): Promise<{ users: AdminUser[]; total: number }> => {
+    const res = await request<ApiResponse<{ users: AdminUser[]; total: number }>>(
+      `/admin/users?${adminQuery(page, pageSize, params)}`, { headers: authHeaders() });
     return res.data ?? { users: [], total: 0 };
   },
 
@@ -373,17 +431,23 @@ export const adminApi = {
     await request(`/admin/users/${id}`, { method: "DELETE", headers: authHeaders() });
   },
 
-  listPosts: async (page = 1, pageSize = 10, status = "all"): Promise<{ posts: ApiPost[]; total: number }> => {
-    const res = await request<ApiResponse<{ posts: ApiPost[]; total: number }>>(`/admin/posts?page=${page}&page_size=${pageSize}&status=${status}`, { headers: authHeaders() });
-    return res.data ?? { posts: [], total: 0 };
+  listPosts: async (page = 1, pageSize = 10, status = "all", params?: AdminListParams): Promise<{ posts: ApiPost[]; total: number }> => {
+    const res = await request<ApiResponse<{ posts: ApiPost[]; total: number }>>(
+      `/admin/posts?${adminQuery(page, pageSize, params, { status })}`, { headers: authHeaders() });
+    const data = res.data ?? { posts: [] as ApiPost[], total: 0 };
+    // @cuiruoni+后台文章列表原先不过 normalizePost：接口发的是 view_count，
+    // @cuiruoni+表格读的是 views，于是「浏览量」这一列永远显示 0。
+    // @cuiruoni+前台其它列表都走 normalizePost，这里补齐同一口径（不改组件、不动后端）。
+    return { ...data, posts: data.posts.map(normalizePost) };
   },
 
   deletePost: async (id: number): Promise<void> => {
     await request(`/admin/posts/${id}`, { method: "DELETE", headers: authHeaders() });
   },
 
-  listComments: async (page = 1, pageSize = 10): Promise<{ comments: AdminComment[]; total: number }> => {
-    const res = await request<ApiResponse<{ comments: AdminComment[]; total: number }>>(`/admin/comments?page=${page}&page_size=${pageSize}`, { headers: authHeaders() });
+  listComments: async (page = 1, pageSize = 10, params?: AdminListParams): Promise<{ comments: AdminComment[]; total: number }> => {
+    const res = await request<ApiResponse<{ comments: AdminComment[]; total: number }>>(
+      `/admin/comments?${adminQuery(page, pageSize, params)}`, { headers: authHeaders() });
     return res.data ?? { comments: [], total: 0 };
   },
 
@@ -392,8 +456,9 @@ export const adminApi = {
   },
 
   // @cuiruoni+留言管理：场景 4 联系表单落库的数据
-  listContacts: async (page = 1, pageSize = 10): Promise<{ contacts: AdminContact[]; total: number }> => {
-    const res = await request<ApiResponse<{ contacts: AdminContact[]; total: number }>>(`/admin/contacts?page=${page}&page_size=${pageSize}`, { headers: authHeaders() });
+  listContacts: async (page = 1, pageSize = 10, params?: AdminListParams): Promise<{ contacts: AdminContact[]; total: number }> => {
+    const res = await request<ApiResponse<{ contacts: AdminContact[]; total: number }>>(
+      `/admin/contacts?${adminQuery(page, pageSize, params)}`, { headers: authHeaders() });
     return res.data ?? { contacts: [], total: 0 };
   },
 
@@ -427,6 +492,15 @@ export const profileApi = {
     });
   },
 
+  /** B13：自助注销账号（需要再次输入密码确认） */
+  deleteAccount: async (password: string): Promise<void> => {
+    await request("/users/me", {
+      method: "DELETE",
+      headers: authHeaders(),
+      body: JSON.stringify({ password }),
+    });
+  },
+
   getPublicProfile: async (username: string): Promise<UserProfile & { posts: ApiPost[] }> => {
     const res = await request<ApiResponse<UserProfile & { posts: ApiPost[] }>>(`/users/${encodeURIComponent(username)}`);
     if (!res.data) throw new Error("Profile not found");
@@ -452,9 +526,17 @@ export const contactApi = {
 };
 
 export const notificationsApi = {
-  list: async (): Promise<ApiNotification[]> => {
-    const res = await request<ApiResponse<ApiNotification[]>>("/notifications", { headers: authHeaders() });
-    return Array.isArray(res.data) ? res.data : [];
+  /** B12：分页读取，unread_count 是跨页的未读总数（不能只数当前页） */
+  list: async (page = 1, pageSize = 20): Promise<{ notifications: ApiNotification[]; total: number; unreadCount: number }> => {
+    const res = await request<ApiResponse<{ notifications?: ApiNotification[]; total?: number; unread_count?: number }>>(
+      `/notifications?page=${page}&page_size=${pageSize}`, { headers: authHeaders() }
+    );
+    const list = res.data?.notifications ?? [];
+    return {
+      notifications: list,
+      total: res.data?.total ?? list.length,
+      unreadCount: res.data?.unread_count ?? 0,
+    };
   },
 
   markRead: async (id: number): Promise<void> => {

@@ -25,7 +25,9 @@ static http::response<http::string_body> handle_list_posts(
     if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second, 1);
     it = params.query.find("page_size");
     if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second, 10);
-    if (page_size > 100) page_size = 100; // @cuiruoni+限制page_size上限，防止大查询
+    // @cuiruoni+B4：page>=1、1<=page_size<=100，否则会拼出负 OFFSET
+    page = sanitize::clamp_page(page);
+    page_size = sanitize::clamp_page_size(page_size, 10);
     it = params.query.find("status");
     if (it != params.query.end()) {
         const auto& s = it->second;
@@ -78,7 +80,8 @@ static http::response<http::string_body> handle_mine_posts(
     if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second, 1);
     it = params.query.find("page_size");
     if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second, 20);
-    if (page_size > 100) page_size = 100;
+    page = sanitize::clamp_page(page);
+    page_size = sanitize::clamp_page_size(page_size, 20);
 
     int total = 0;
     auto arr = post_dao::list_by_author(user_id, page, page_size, total);
@@ -113,26 +116,24 @@ static http::response<http::string_body> handle_get_post(
         return res;
     }
 
-    // @cuiruoni+P0安全修复：草稿仅作者本人和管理员可见，其他人一律404（不暴露文章存在性）
-    if (post.status != "published") {
-        int64_t viewer_id = 0;
-        std::string viewer_name, viewer_role;
-        bool authed = auth_service::extract_user_from_token(req, viewer_id, viewer_name, viewer_role);
-        bool is_owner = authed && (viewer_role == "admin" || post.user_id == viewer_id);
-        if (!is_owner) {
-            http::response<http::string_body> res{http::status::not_found, req.version()};
-            res.body() = response::error(404, "Post not found");
-            res.prepare_payload();
-            return res;
-        }
+    // @cuiruoni+A2：草稿/private 仅作者与管理员可见，members 需登录；
+    // @cuiruoni+不满足一律 404，不暴露文章存在性
+    int64_t viewer_id = 0;
+    std::string viewer_name, viewer_role;
+    bool authed = auth_service::extract_user_from_token(req, viewer_id, viewer_name, viewer_role);
+    if (!post_service::can_view_post(post, viewer_id, viewer_role)) {
+        http::response<http::string_body> res{http::status::not_found, req.version()};
+        res.body() = response::error(404, "Post not found");
+        res.prepare_payload();
+        return res;
     }
 
     // @cuiruoni+基于IP的浏览量去重：同一IP对同一文章60秒内只计一次浏览
     if (post.status == "published") {
-        // @cuiruoni+P1修复：无X-Real-IP时回退到Session写入的X-Client-IP（TCP对端地址）
-        std::string client_ip = req.find("X-Real-IP") != req.end()
-            ? std::string(req["X-Real-IP"])
-            : (req.find("X-Client-IP") != req.end() ? std::string(req["X-Client-IP"]) : "unknown");
+        // @cuiruoni+安全：只认 Session 归一后的 X-Client-IP —— X-Real-IP 只有在
+        // @cuiruoni+trust_proxy_real_ip=true 时才会被折进那个值，客户端自带的同名头一律忽略
+        std::string client_ip = req.find("X-Client-IP") != req.end()
+            ? std::string(req["X-Client-IP"]) : std::string("unknown");
         std::string view_key = "viewed:" + std::to_string(id) + ":" + client_ip;
         auto ctx = RedisPool::instance().acquire();
         if (ctx) {
@@ -156,9 +157,6 @@ static http::response<http::string_body> handle_get_post(
     data["bookmark_count"] = post_dao::count_bookmarks(id);
     data["comment_count"] = post_dao::count_comments(id);
 
-    int64_t viewer_id = 0;
-    std::string viewer_name, viewer_role;
-    bool authed = auth_service::extract_user_from_token(req, viewer_id, viewer_name, viewer_role);
     data["liked"] = authed && post_dao::is_liked(id, viewer_id);
     data["bookmarked"] = authed && post_dao::is_bookmarked(id, viewer_id);
 
@@ -190,7 +188,8 @@ static http::response<http::string_body> handle_like_post(
     int64_t id = sanitize::safe_stoll(it->second);
 
     auto post = post_service::get_post(id, false);
-    if (post.id == 0 || post.status != "published") {
+    if (post.id == 0 || post.status != "published" ||
+        !post_service::can_view_post(post, user_id, role)) {
         http::response<http::string_body> res{http::status::not_found, req.version()};
         res.body() = response::error(404, "Post not found");
         res.prepare_payload();
@@ -200,7 +199,7 @@ static http::response<http::string_body> handle_like_post(
     bool newly_liked = post_dao::add_like(id, user_id);
     if (newly_liked && post.user_id != user_id) {
         notification_dao::insert(post.user_id, "like", username,
-            "赞了你的文章《" + post.title + "》", post.title);
+            "赞了你的文章《" + post.title + "》", post.title, id, user_id);
     }
 
     json::object data;
@@ -263,7 +262,8 @@ static http::response<http::string_body> handle_bookmark_post(
     }
 
     auto post = post_service::get_post(id, false);
-    if (post.id == 0 || post.status != "published") {
+    if (post.id == 0 || post.status != "published" ||
+        !post_service::can_view_post(post, user_id, role)) {
         http::response<http::string_body> res{http::status::not_found, req.version()};
         res.body() = response::error(404, "Post not found");
         res.prepare_payload();
@@ -327,7 +327,8 @@ static http::response<http::string_body> handle_list_liked_posts(
     if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second, 1);
     it = params.query.find("page_size");
     if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second, 10);
-    if (page_size > 100) page_size = 100;
+    page = sanitize::clamp_page(page);
+    page_size = sanitize::clamp_page_size(page_size, 10);
 
     int total = 0;
     json::array arr = post_dao::list_liked_posts(user_id, page, page_size, total);
@@ -355,7 +356,8 @@ static http::response<http::string_body> handle_list_bookmarked_posts(
     if (it != params.query.end() && !it->second.empty()) page = sanitize::safe_stoi(it->second, 1);
     it = params.query.find("page_size");
     if (it != params.query.end() && !it->second.empty()) page_size = sanitize::safe_stoi(it->second, 10);
-    if (page_size > 100) page_size = 100;
+    page = sanitize::clamp_page(page);
+    page_size = sanitize::clamp_page_size(page_size, 10);
 
     int total = 0;
     json::array arr = post_dao::list_bookmarked_posts(user_id, page, page_size, total);
@@ -439,6 +441,14 @@ static http::response<http::string_body> handle_update_post(
     }
 
     int64_t id = sanitize::safe_stoll(it->second);
+    // @cuiruoni+B3：先确认文章存在。can_modify_post 对管理员恒为 true，
+    // @cuiruoni+不查这一步时 PUT 一个不存在的 id 会“更新成功”并回传空文章。
+    if (!post_dao::exists_by_id(id)) {
+        http::response<http::string_body> res{http::status::not_found, req.version()};
+        res.body() = response::error(404, "Post not found");
+        res.prepare_payload();
+        return res;
+    }
     if (!post_service::can_modify_post(id, user_id, role)) {
         http::response<http::string_body> res{http::status::forbidden, req.version()};
         res.body() = response::error(403, "Forbidden");
@@ -448,8 +458,28 @@ static http::response<http::string_body> handle_update_post(
 
     try {
         auto body = json::parse(req.body()).as_object();
-        auto post = post_service::json_to_post(body);
-        if (!post_service::update_post(id, post)) {
+        // @cuiruoni+B3：PUT 采用部分更新语义 —— 只改请求里出现的字段，
+        // @cuiruoni+避免“只改标题”把正文/封面/可见性清空。
+        auto patch = post_service::json_to_post_patch(body);
+        if (patch.empty()) {
+            http::response<http::string_body> res{http::status::bad_request, req.version()};
+            res.body() = response::error(400, "No fields to update");
+            res.prepare_payload();
+            return res;
+        }
+        if (patch.title && patch.title->empty()) {
+            http::response<http::string_body> res{http::status::bad_request, req.version()};
+            res.body() = response::error(400, "Title cannot be empty");
+            res.prepare_payload();
+            return res;
+        }
+        if (patch.content_md && patch.content_md->empty()) {
+            http::response<http::string_body> res{http::status::bad_request, req.version()};
+            res.body() = response::error(400, "Content cannot be empty");
+            res.prepare_payload();
+            return res;
+        }
+        if (!post_service::update_post_patch(id, patch)) {
             http::response<http::string_body> res{http::status::internal_server_error, req.version()};
             res.body() = response::error(500, "Failed to update post");
             res.prepare_payload();
@@ -492,6 +522,13 @@ static http::response<http::string_body> handle_delete_post(
     }
 
     int64_t id = sanitize::safe_stoll(it->second);
+    // @cuiruoni+B3 同形问题：can_modify_post 对管理员恒为 true，删不存在的 id 会“假成功 + 200”
+    if (!post_dao::exists_by_id(id)) {
+        http::response<http::string_body> res{http::status::not_found, req.version()};
+        res.body() = response::error(404, "Post not found");
+        res.prepare_payload();
+        return res;
+    }
     if (!post_service::can_modify_post(id, user_id, role)) {
         http::response<http::string_body> res{http::status::forbidden, req.version()};
         res.body() = response::error(403, "Forbidden");
@@ -527,5 +564,7 @@ void register_post_routes(Router& router) {
     router.add_route("POST", "/api/posts/:id/bookmark", handle_bookmark_post);
     router.add_route("DELETE", "/api/posts/:id/bookmark", handle_unbookmark_post);
     router.add_route("PUT", "/api/posts/:id", handle_update_post);
+    // @cuiruoni+B3：PATCH 与 PUT 同为部分更新语义，兼容按 REST 语义调用 PATCH 的客户端
+    router.add_route("PATCH", "/api/posts/:id", handle_update_post);
     router.add_route("DELETE", "/api/posts/:id", handle_delete_post);
 }

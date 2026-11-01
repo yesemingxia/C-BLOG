@@ -31,7 +31,12 @@ services:
       target: runtime
     restart: unless-stopped
     ports:
-      - "8089:8089"
+      # @cuiruoni+只绑宿主机回环：后端唯一的对外路径是 nginx(80)。
+      # @cuiruoni+原来写 "8089:8089" 会把端口开放在宿主机所有网卡上，而下面又设了
+      # @cuiruoni+TRUST_PROXY_REAL_IP=true —— 能直连 8089 的人每个请求自带一个新 X-Real-IP，
+      # @cuiruoni+就等于限流、登录锁定、浏览量去重全部失效（它们都按 IP 分桶）。
+      # @cuiruoni+绑 127.0.0.1 后本机 curl/调试照旧可用，外部机器打不进来。
+      - "127.0.0.1:8089:8089"
     depends_on:
       - mysql
       - redis
@@ -43,12 +48,20 @@ services:
       - DB_NAME=blog
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - JWT_SECRET=${JWT_SECRET:-change-me-to-a-random-secret-min-32-chars}
-      # @cuiruoni+阿里云百炼 DashScope API Key（图片风格转换功能）
-      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      # @cuiruoni+改成「未设置就直接拒绝启动」：原来的 ${JWT_SECRET:-change-me-to-...}
+      # @cuiruoni+在忘记配环境变量时会带着一个写在公开仓库里的默认密钥起服务，
+      # @cuiruoni+HS256 密钥一旦已知，任何人都能自行签发 role=admin 的 token 拿到后台。
+      # @cuiruoni+:? 是 compose 的强制变量语法，报错信息比让容器崩在启动守卫里好定位。
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET 必须设置为至少 32 位的随机串，例如 openssl rand -hex 32}
+      # @cuiruoni+客户端 IP 口径：nginx.conf 用 $remote_addr 覆写 X-Real-IP，这里才允许后端认账，
+      # @cuiruoni+否则所有访客都会被算成 nginx 容器这一个 IP，限流/浏览量去重全挤在同一个桶里。
+      # @cuiruoni+前提是只有 nginx 能到后端 —— 上面的端口映射已绑到 127.0.0.1，
+      # @cuiruoni+外部机器直连 8089 伪造 X-Real-IP 这条路已经断了；宿主机本机上仍然可以，
+      # @cuiruoni+所以这条开关的作用域是「信任本机 nginx」，不要把 8089 再开放到公网网卡。
+      - TRUST_PROXY_REAL_IP=true
     volumes:
       - ./config:/app/config
-      # @cuiruoni+风格转换生成图持久化
+      # @cuiruoni+上传图片/视频持久化
       - ./uploads:/app/uploads
 
   frontend:

@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  X, Eye, Heart, Bookmark, MessageSquare, Loader2, Send,
+  X, Eye, Heart, Bookmark, MessageSquare, Loader2, Send, Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { postsApi, commentsApi, type ApiComment, type ApiPost } from "../../lib/api";
@@ -72,7 +72,9 @@ const PostModal = ({ post, onClose }: PostModalProps) => {
   const [bookmarked, setBookmarked] = useState(false);
   const [likeBusy, setLikeBusy] = useState(false);
   const [comments, setComments] = useState<ApiComment[]>([]);
+  const [commentsTotal, setCommentsTotal] = useState(0);
   const [loadingComments, setLoadingComments] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [posting, setPosting] = useState(false);
 
@@ -102,12 +104,16 @@ const PostModal = ({ post, onClose }: PostModalProps) => {
 
     setLoadingComments(true);
     commentsApi
-      .list(post.id)
-      .then((list) => {
-        if (alive) setComments(list);
+      .list(post.id, 1, 50)
+      .then((res) => {
+        if (!alive) return;
+        setComments(res.comments);
+        setCommentsTotal(res.total);
       })
       .catch(() => {
-        if (alive) setComments([]);
+        if (!alive) return;
+        setComments([]);
+        setCommentsTotal(0);
       })
       .finally(() => {
         if (alive) setLoadingComments(false);
@@ -179,6 +185,7 @@ const PostModal = ({ post, onClose }: PostModalProps) => {
     try {
       const created = await commentsApi.create(p.id, text);
       setComments((prev) => [...prev, created]);
+      setCommentsTotal((total) => total + 1);
       setCommentText("");
       setDetail((prev) => (prev ? { ...prev, comments_count: (prev.comments_count ?? 0) + 1 } : prev));
     } catch {
@@ -187,6 +194,91 @@ const PostModal = ({ post, onClose }: PostModalProps) => {
       setPosting(false);
     }
   };
+
+  /** B5：评论分页 —— 首屏 50 条，剩余走“加载更多” */
+  const loadMoreComments = async () => {
+    if (!p || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = Math.floor(comments.length / 50) + 1;
+      const res = await commentsApi.list(p.id, nextPage, 50);
+      setComments((prev) => [...prev, ...res.comments]);
+      setCommentsTotal(res.total);
+    } catch {
+      toast.error("加载更多评论失败");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const canDeleteComment = (c: ApiComment) =>
+    !!user && (user.role === "admin" || c.author_name === user.username);
+
+  const deleteComment = async (c: ApiComment) => {
+    if (!p) return;
+    if (!window.confirm("确定删除这条评论吗？其下的回复会一并删除。")) return;
+    try {
+      await commentsApi.remove(c.id);
+      setComments((prev) => prev.filter((item) => item.id !== c.id));
+      setCommentsTotal((total) => Math.max(0, total - 1));
+      setDetail((prev) => (prev
+        ? { ...prev, comments_count: Math.max(0, (prev.comments_count ?? 0) - 1) }
+        : prev));
+      toast.success("评论已删除");
+    } catch {
+      toast.error("删除失败");
+    }
+  };
+
+  /** B5：后端早就支持 parent_id（回复），但列表原来把回复按时间平铺，
+   *  回复看着和顶级评论同级、还看不出它在回谁。这里只做展示归位，
+   *  「回复」入口本身仍是清单第十节的待拍板项，没在这轮加。 */
+  const commentTree = useMemo(() => {
+    const children = new Map<number, ApiComment[]>();
+    const tops: ApiComment[] = [];
+    for (const c of comments) {
+      if (c.parent_id) {
+        const list = children.get(c.parent_id) ?? [];
+        list.push(c);
+        children.set(c.parent_id, list);
+      } else {
+        tops.push(c);
+      }
+    }
+    // 父评论已被删除（级联删库后不该出现，防御性归位到顶层，避免回复凭空消失）
+    const orphan = [...children.keys()].filter((id) => !comments.some((c) => c.id === id));
+    for (const id of orphan) {
+      for (const c of children.get(id) ?? []) tops.push(c);
+      children.delete(id);
+    }
+    return { tops, children };
+  }, [comments]);
+
+  const renderComment = (c: ApiComment, isReply: boolean) => (
+    <li key={c.id} className={"post-modal-comment" + (isReply ? " is-reply" : "")}>
+      <div className="post-modal-comment-head">
+        <span className="post-modal-comment-author">
+          {(c.author_name ?? c.author ?? "匿名").charAt(0).toUpperCase()}
+          {(c.author_name ?? c.author ?? "匿名").slice(1)}
+        </span>
+        <span className="post-modal-comment-time">
+          {(c.created_at ?? "").slice(0, 16).replace("T", " ")}
+          {canDeleteComment(c) && (
+            <button
+              type="button"
+              className="post-modal-comment-delete"
+              title="删除评论"
+              aria-label="删除评论"
+              onClick={() => deleteComment(c)}
+            >
+              <Trash2 size={11} />
+            </button>
+          )}
+        </span>
+      </div>
+      <p className="post-modal-comment-body">{c.content}</p>
+    </li>
+  );
 
   if (!rendered) return null;
 
@@ -256,7 +348,7 @@ const PostModal = ({ post, onClose }: PostModalProps) => {
 
         {/* ---------- 评论区 ---------- */}
         <div className="post-modal-comments">
-          <h4 className="post-modal-comments-title">评论（{comments.length}）</h4>
+          <h4 className="post-modal-comments-title">评论（{commentsTotal || comments.length}）</h4>
 
           {isLoggedIn ? (
             <div className="post-modal-comment-form">
@@ -296,21 +388,28 @@ const PostModal = ({ post, onClose }: PostModalProps) => {
             <p className="post-modal-comment-empty">还没有评论，来抢沙发</p>
           ) : (
             <ul className="post-modal-comment-list">
-              {comments.map((c) => (
-                <li key={c.id} className="post-modal-comment">
-                  <div className="post-modal-comment-head">
-                    <span className="post-modal-comment-author">
-                      {(c.author_name ?? c.author ?? "匿名").charAt(0).toUpperCase()}
-                      {(c.author_name ?? c.author ?? "匿名").slice(1)}
-                    </span>
-                    <span className="post-modal-comment-time">
-                      {(c.created_at ?? "").slice(0, 16).replace("T", " ")}
-                    </span>
-                  </div>
-                  <p className="post-modal-comment-body">{c.content}</p>
+              {commentTree.tops.map((c) => (
+                <li key={c.id} className="post-modal-comment-node">
+                  {renderComment(c, false)}
+                  {(commentTree.children.get(c.id)?.length ?? 0) > 0 && (
+                    <ul className="post-modal-comment-children">
+                      {commentTree.children.get(c.id)!.map((child) => renderComment(child, true))}
+                    </ul>
+                  )}
                 </li>
               ))}
             </ul>
+          )}
+
+          {!loadingComments && comments.length < commentsTotal && (
+            <button
+              type="button"
+              className="post-modal-comment-more"
+              onClick={loadMoreComments}
+              disabled={loadingMore}
+            >
+              {loadingMore ? "加载中…" : `加载更多（还有 ${commentsTotal - comments.length} 条）`}
+            </button>
           )}
         </div>
 
