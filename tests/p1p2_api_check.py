@@ -487,6 +487,109 @@ def main():
         for upload_id in upload_ids:
             a.json("DELETE", f"/api/videos/upload/{upload_id}")
 
+        # ---------------- C1 浏览量只 +1，不把 updated_at 顶成当前时间 ----------------
+        # @cuiruoni+为什么要比「两次 GET 的 updated_at」而不是「GET 返回的值 vs 库里」：
+        # @cuiruoni+handle_get_post 是先 find_by_id 再 increment，同一次响应里的 updated_at 永远是
+        # @cuiruoni+自增之前的快照 —— 只比同一个响应会永远通过（假绿）。必须让第二次 GET 读到
+        # @cuiruoni+第一次自增之后的值，才能区分「ON UPDATE 被触发」和「没被触发」。
+        c1_post = create_post(a, f"{PREFIX}_c1 浏览量", f"C1 正文 {PREFIX}")
+        c1_id = c1_post["id"]
+        created_posts.append(c1_id)
+
+        d1st, _ = a.json("GET", f"/api/posts/{c1_id}")
+        views_before = d1st["data"]["view_count"]
+        updated_before = d1st["data"]["updated_at"]
+        time.sleep(1.2)  # updated_at 是秒级，睡过一秒才能看出差别
+        # @cuiruoni+浏览量去重按 IP（60s 内同一 IP 只计一次），换一个没看过的 IP 才会真的 +1
+        viewer = Client("viewer", "10.92.0.31")
+        d2nd, _ = viewer.json("GET", f"/api/posts/{c1_id}")
+        check(d2nd["data"]["view_count"] == views_before + 1,
+              "C1 新 IP 浏览使浏览量 +1", f"{views_before}->{d2nd['data']['view_count']}")
+        check(d2nd["data"]["updated_at"] == updated_before,
+              "C1 浏览量不再刷新 updated_at", f"{updated_before}->{d2nd['data']['updated_at']}")
+        # @cuiruoni+反向验证：真正的编辑必须刷新 updated_at，否则上面那条「不变」可能只是字段坏了
+        time.sleep(1.2)
+        a.json("PUT", f"/api/posts/{c1_id}", {"title": f"{PREFIX}_c1 改标题"})
+        d3rd, _ = a.json("GET", f"/api/posts/{c1_id}")
+        check(d3rd["data"]["updated_at"] != updated_before,
+              "C1 真正编辑仍刷新 updated_at", f"still {updated_before}")
+
+        # ---------------- D4 登录锁定：只锁「来源+账号」，不让旁人把账号锁死 ----------------
+        # @cuiruoni+登录锁定的计数与判定都在 Redis 里；Redis 缺席时后端进入降级模式（日志会打
+        # @cuiruoni+"Rate limiter: Redis unavailable"），锁定根本不生效 —— 这时必须明确 skip，
+        # @cuiruoni+既不能当成通过（假绿），也不能当成失败（那是环境问题，不是代码问题）。
+        # @cuiruoni+探测方式借用搜索接口缓存头的约定：Redis 缺席时它回 disabled。
+        # @cuiruoni+必须用**匿名**客户端探：登录态那一路是 bypass（压根不读缓存），
+        # @cuiruoni+拿它判断会把「Redis 不可用」误判成可用，D4 就会带着降级环境的假失败跑下去。
+        _, probe_headers = anon.json("GET", f"/api/search?q={PREFIX}_probe")
+        redis_ready = header(probe_headers, "X-Search-Cache") != "disabled"
+
+        # @cuiruoni+这里必须用「还活着」的账号：user_c 在前面的 B13 自助注销用例里已经被删掉并置 None。
+        # @cuiruoni+选 user_b 而不是 user_a，是因为 D1 那段要用 a 建图床文章，别把它牵扯进锁定流程。
+        def try_login(ip, body):
+            status, _, payload = b.request("POST", "/api/auth/login", body,
+                                           headers={"X-Real-IP": ip})
+            return status, (payload or b"").decode("utf-8", "replace")
+
+        if not redis_ready:
+            print("skip  D4 用例（Redis 不可用：锁定计数与判定都在 Redis 里）")
+        else:
+            # @cuiruoni+登录端点限流是 10 次/60s/IP；这里同一 IP 只打 6 次，所以 429 只可能来自账号锁定。
+            # @cuiruoni+两种 429 的文案不同，断言里一并核对，避免把限流误判成锁定。
+            lock_ip = "10.93.0.5"
+            wrong = {"username": user_b["username"], "password": "definitely-wrong"}
+            for i in range(5):
+                status, _ = try_login(lock_ip, wrong)
+                check(status == 401, f"D4 第 {i + 1} 次错密码 401", f"status={status}")
+            status, body = try_login(lock_ip, wrong)
+            check(status == 429 and "locked" in body,
+                  "D4 同一来源第 6 次被锁定（不是限流）", f"{status} {body[:80]}")
+            # @cuiruoni+这条是本轮改动的核心：改动前账号只按用户名计数，任何人错 5 次就能把真号主挡在门外
+            status, body = try_login("10.93.0.6", {"username": user_b["username"], "password": PASSWORD})
+            check(status == 200, "D4 其他来源不受影响，仍可正常登录", f"{status} {body[:80]}")
+
+            # @cuiruoni+账号层：换 IP 也要累计，20 次后锁账号（挡分布式撞库）。
+            # @cuiruoni+用不存在的用户名，避免污染真实账号，也顺带覆盖「用户不存在」那条分支。
+            ghost = f"{PREFIX}_ghost"
+            last_status = None
+            for i in range(20):
+                last_status, _ = try_login(f"10.94.0.{i + 1}", {"username": ghost, "password": "x"})
+            check(last_status == 401, "D4 账号层前 20 次都是 401", f"last={last_status}")
+            status, body = try_login("10.94.1.1", {"username": ghost, "password": "x"})
+            check(status == 429 and "locked" in body,
+                  "D4 账号层累计 20 次后跨来源锁定", f"{status} {body[:80]}")
+
+        # ---------------- D1 删除后回收图片（B1 残留的另一半） ----------------
+        # @cuiruoni+1x1 PNG：能通过 base64/mime 校验，足够走完「上传→落盘→公开读取→回收」全链路。
+        # @cuiruoni+断言全部走公开的 GET /api/upload/file/:name，不需要测试端碰文件系统。
+        tiny_png = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8"
+                    "z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+        up_private, _ = a.json("POST", "/api/upload/image",
+                               {"image_base64": tiny_png, "image_mime": "image/png"})
+        private_url = up_private["data"]["url"]
+        up_shared, _ = a.json("POST", "/api/upload/image",
+                              {"image_base64": tiny_png, "image_mime": "image/png"})
+        shared_url = up_shared["data"]["url"]
+
+        p_d1_private = create_post(a, f"{PREFIX}_d1a", f"私有图 {private_url}")
+        p_d1_shared_a = create_post(a, f"{PREFIX}_d1b", f"共用图 {shared_url}")
+        p_d1_shared_b = create_post(b, f"{PREFIX}_d1c", f"b 也引用 {shared_url}")
+        created_posts.extend([p_d1_private["id"], p_d1_shared_a["id"]])
+
+        status, _, _ = anon.request("GET", private_url)
+        check(status == 200, "D1 上传后图片公开可读")
+        delete_post(a, p_d1_private["id"])
+        status, _, _ = anon.request("GET", private_url)
+        check(status == 404, "D1 删除文章后私有图被回收", f"status={status}")
+        status, _, _ = anon.request("GET", shared_url)
+        check(status == 200, "D1 被另一篇文章引用的图不能删", f"status={status}")
+        delete_post(a, p_d1_shared_a["id"])
+        status, _, _ = anon.request("GET", shared_url)
+        check(status == 200, "D1 只剩一个引用时仍保留", f"status={status}")
+        delete_post(b, p_d1_shared_b["id"])
+        status, _, _ = anon.request("GET", shared_url)
+        check(status == 404, "D1 最后一个引用删除后回收", f"status={status}")
+
         # ---------------- 可选：管理员 B6/B7/B8 ----------------
         if admin_user and admin_pass:
             admin = Client("admin", "10.90.0.19")

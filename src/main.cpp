@@ -18,6 +18,7 @@
 #include "controllers/video_controller.h"
 #include "middleware/auth_middleware.h"
 #include "services/video_upload_service.h"
+#include "services/post_service.h"
 
 #include <boost/beast/http.hpp>
 #include <boost/program_options.hpp>
@@ -100,6 +101,12 @@ int main(int argc, char* argv[]) {
         // @cuiruoni+自动建表，使用CREATE IF NOT EXISTS保证幂等
         Database::init_tables();
 
+        // @cuiruoni+B1 残留：启动先扫一次「上传了但从未发布」/历史遗留的孤儿图片。
+        // @cuiruoni+必须放在建表之后：引用计数要查 posts / comments / users 三张表，表没建好时
+        // @cuiruoni+查询会全部失败并返回 -1，那一侧按「仍在引用」处理 —— 等于白扫一遍。
+        // @cuiruoni+24 小时闸门见 post_service::sweep_orphan_images 的注释。
+        post_service::sweep_orphan_images(24 * 60 * 60);
+
         Router router;
 
         // @cuiruoni+注册路径白名单认证中间件，作为安全网关防止新增接口时遗漏认证检查
@@ -146,13 +153,19 @@ int main(int argc, char* argv[]) {
 
         // @cuiruoni+B11：定时清理过期上传会话与 .part 文件。
         // @cuiruoni+原先 prune_expired 没有调用方，长时间无上传时磁盘会一直占着。
+        // @cuiruoni+B1 残留：每小时顺带扫一次孤儿图片（启动那一次已经扫过）。
         std::thread video_prune_thread([]() {
-            int ticks = 0;
+            int ticks = 0;       // 5s × 12 = 60s：视频会话 / 分片
+            int hour_ticks = 0;  // 60s × 60 = 1h：孤儿图片
             while (!g_shutdown) {
                 std::this_thread::sleep_for(std::chrono::seconds(5));
                 if (++ticks >= 12) {
                     ticks = 0;
                     video_upload_service::prune_expired();
+                    if (++hour_ticks >= 60) {
+                        hour_ticks = 0;
+                        post_service::sweep_orphan_images(24 * 60 * 60);
+                    }
                 }
             }
         });

@@ -256,18 +256,18 @@ export DB_PASSWORD="<你的 MySQL root 口令>"      # 不设则退回 compose �
 docker compose up -d --build
 ```
 
-- 只有后端不再直接对外：它的端口映射写的是 `127.0.0.1:8089:8089`，**故意的** ——
-  compose 里同时开了 `TRUST_PROXY_REAL_IP=true`，若把 8089 暴露到宿主机所有网卡，
-  能直连它的人每个请求自带一个新的 `X-Real-IP`，限流、登录锁定、浏览量去重就全被绕开了
-  （它们都按 IP 分桶）。本机调试仍可用 `curl 127.0.0.1:8089`。
-- ⚠️ **仍然暴露的是 MySQL 与 Redis**：`3307/33061`（MySQL）和 `6379`（Redis）目前发布在宿主机所有网卡上，
-  而且 Redis 没设口令。放到公网或不可信局域网里跑之前，要么把这三条映射也改成 `127.0.0.1:` 前缀
-  （容器之间走 compose 网络，改映射不影响后端连接），要么给 Redis 加 `--requirepass` 并同步配
-  `REDIS_PASSWORD`。JWT 黑名单、限流计数、搜索缓存都在这个库里，开放即等于可被任意读写。
-- `nginx.conf` 用 `$remote_addr` 覆写 `X-Real-IP`，所以容器里才允许后端认这个头。
-- 媒体持久化靠 `./uploads:/app/uploads` 这条挂载；换宿主机目录就改挂载点，别改 `storage_root`。
+- **所有宿主机端口映射都只绑回环**：`127.0.0.1` 上的 `8089`（后端）、`3307`/`33061`（MySQL）、
+  `6379`（Redis）。容器之间按服务名走 compose 网络、不经过这些映射，所以改绑定不影响后端连接；
+  映射只方便在本机用 curl / mysql 客户端调试，同一网段的其它机器连不上任何服务。
+- `8089` 尤其不能放开：compose 里开了 `TRUST_PROXY_REAL_IP=true`，谁能直连 8089，谁就能每个请求
+  自带一个新的 `X-Real-IP` —— 限流、登录锁定、浏览量去重（都按 IP 分桶）会被整体绕开。
+- 仍未收紧的一点：Redis 没有口令，只靠"绑定回环"隔离。若宿主机是多用户共享的，建议再加
+  `command: redis-server --requirepass <口令>` 并把 `REDIS_PASSWORD` 传给后端 ——
+  JWT 黑名单、限流计数、搜索缓存都在这个库里，能本地连上就等于能清空它们。
 - `DB_PASSWORD` 不设时会退回 compose 里写死的开发默认值 `blog123456`，这是**开发便利**，
   正式部署必须自己设一个（`${DB_PASSWORD:?...}` 的写法可参考同一文件里 `JWT_SECRET` 那条）。
+- `nginx.conf` 用 `$remote_addr` 覆写 `X-Real-IP`，所以容器里才允许后端认这个头。
+- 媒体持久化靠 `./uploads:/app/uploads` 这条挂载；换宿主机目录就改挂载点，别改 `storage_root`。
 
 ### 测试与验证
 

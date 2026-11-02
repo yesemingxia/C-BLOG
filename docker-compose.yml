@@ -9,8 +9,11 @@ services:
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-blog123456}
       MYSQL_DATABASE: blog
     ports:
-      - "3307:3306"
-      - "33061:33060"
+      # @cuiruoni+只绑宿主机回环：后端容器走 compose 网络按服务名连 mysql，不经过这两个映射；
+      # @cuiruoni+映射只是为了宿主机上的 mysql 客户端/工具。原来写成 "3307:3306"，等于把数据库
+      # @cuiruoni+开放到同一网段的所有机器，口令又是 compose 里的开发默认值。
+      - "127.0.0.1:3307:3306"
+      - "127.0.0.1:33061:33060"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
@@ -20,7 +23,10 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      # @cuiruoni+同上：只绑回环。后端容器按服务名 redis:6379 连它，这条映射只服务宿主机调试。
+      # @cuiruoni+Redis 里放的是 JWT 黑名单、限流计数和搜索缓存，原来 0.0.0.0:6379 且无口令，
+      # @cuiruoni+同一网段任何人都能读写/清空。要再加一层就开 requirepass 并同步 REDIS_PASSWORD。
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
 

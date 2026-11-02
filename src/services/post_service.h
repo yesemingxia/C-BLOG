@@ -38,6 +38,14 @@ bool delete_post(int64_t id);
 // @cuiruoni+调用时机必须在删库成功之后：那时旧引用已经不在，计数才可能归零；
 // @cuiruoni+早一步调用只会看到「仍被引用」，不会误删。返回真正删掉的个数。
 size_t reclaim_images(const std::vector<std::string>& media_texts);
+
+// @cuiruoni+B1 残留（另一半）：扫描 storage::images()，清掉「没有任何数据库行引用」的图片文件。
+// @cuiruoni+覆盖 reclaim_images 触达不到的两类：上传后从未发布（不会有删除事件）、历史遗留。
+// @cuiruoni+min_age_seconds 是安全闸：太新的文件可能是用户刚传、文章还没保存，必须跳过；
+// @cuiruoni+默认 24 小时由调用方传（见 main.cpp 的定时器）。
+// @cuiruoni+判定保守：文件名不在白名单、改不了 mtime、引用计数查询失败，一律跳过不删。
+// @return 实际删掉的文件数。
+size_t sweep_orphan_images(int min_age_seconds);
 bool can_modify_post(int64_t post_id, int64_t user_id, const std::string& role);
 
 }

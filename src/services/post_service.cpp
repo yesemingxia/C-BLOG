@@ -8,6 +8,8 @@
 #include "utils/storage.h"
 
 #include <algorithm>
+#include <chrono>
+#include <filesystem>
 #include <sstream>
 #include <stdexcept>
 
@@ -324,6 +326,50 @@ size_t reclaim_images(const std::vector<std::string>& media_texts) {
         }
     } catch (const std::exception& e) {
         spdlog::error("reclaim_images error: {}", e.what());
+    }
+    return removed;
+}
+
+size_t sweep_orphan_images(int min_age_seconds) {
+    namespace fs = std::filesystem;
+    size_t removed = 0;
+    try {
+        std::error_code ec;
+        fs::directory_iterator it(storage::images(), ec), end;
+        if (ec) return 0;  // 目录还没建（从没上传过图片）
+
+        const auto now = fs::file_time_type::clock::now();
+        const auto min_age = std::chrono::seconds(min_age_seconds > 0 ? min_age_seconds : 0);
+
+        for (; !ec && it != end; it.increment(ec)) {
+            const fs::path path = it->path();
+            std::error_code type_ec;
+            if (!fs::is_regular_file(path, type_ec) || type_ec) continue;
+
+            const std::string name = path.filename().string();
+            // @cuiruoni+不是我们生成的文件名就永不碰：别人的备份、手工放进去的文件都算在内
+            if (!storage::is_safe_image_name(name)) continue;
+
+            std::error_code time_ec;
+            const auto mtime = fs::last_write_time(path, time_ec);
+            if (time_ec) continue;
+            // @cuiruoni+安全闸：太新的不动。用户传完图可能正在写文章（甚至第二天才发），
+            // @cuiruoni+这段时间里数据库里没有任何引用是正常的，删了就是把人家的图吃了
+            if (now - mtime < min_age) continue;
+
+            const int refs = post_dao::count_image_references(name);
+            if (refs != 0) continue;  // >0 仍被引用；-1 查询失败，同样按「仍在引用」处理
+
+            if (storage::remove_image(name)) {
+                ++removed;
+                spdlog::info("[media] swept orphan image {} (unreferenced)", name);
+            }
+        }
+        if (removed > 0) {
+            spdlog::info("[media] swept {} orphan image(s) from {}", removed, storage::images());
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("sweep_orphan_images error: {}", e.what());
     }
     return removed;
 }
