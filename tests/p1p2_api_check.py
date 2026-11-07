@@ -21,6 +21,8 @@
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -32,7 +34,19 @@ from pathlib import Path
 BASE = os.environ.get("BLOG_API_BASE", "http://127.0.0.1:8089").rstrip("/")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VIDEO_DIR = REPO_ROOT / "uploads" / "videos"
+CONFIG_PATH = REPO_ROOT / "config" / "config.json"
+MYSQL = shutil.which("mysql") or r"C:\Program Files\MySQL\MySQL Server 9.3\bin\mysql.exe"
 CORS_ORIGIN = os.environ.get("BLOG_CORS_ORIGIN", "http://localhost:5173")
+
+
+def mysql_run(sql):
+    """以 config/config.json 的库口令执行 SQL（回显不含口令的内容由调用方决定）"""
+    cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    env = os.environ.copy()
+    env["MYSQL_PWD"] = cfg["db_password"]
+    args = [MYSQL, "-h", "127.0.0.1", "-P", "3306",
+            "-u", cfg["db_user"], "-N", "-B", "-e", sql, cfg["db_name"]]
+    return subprocess.run(args, env=env, capture_output=True, text=True, timeout=30)
 
 PREFIX = f"p1p2_{int(time.time())}"
 PASSWORD = "Passw0rd9"
@@ -436,11 +450,26 @@ def main():
               "B14 非白名单 Origin 不返回 allow-origin")
 
         # ---------------- B10 视频 Range ----------------
+        # @crnl+F6：公开读取要求库里有记录且 status=approved（裸文件一律 404）。
+        # 用例改为先落一条 approved 记录再测 Range，孤儿文件单独断言不可读
         VIDEO_DIR.mkdir(parents=True, exist_ok=True)
         test_video = VIDEO_DIR / f"{PREFIX}_range.mp4"
         test_video.write_bytes(bytes(range(256)) * 16)  # 4096 bytes
         size = test_video.stat().st_size
         name = test_video.name
+        uploader_id = int(mysql_run(
+            f"SELECT id FROM users WHERE username='{user_c['username']}'").stdout.strip() or "0")
+        inserted = mysql_run(
+            f"INSERT INTO video_submissions (uploader_id, filename, original_name, status) "
+            f"VALUES ({uploader_id}, '{name}', 'range-probe', 'approved')")
+        check(inserted.returncode == 0, "B10 准备：approved 投稿记录落库",
+              inserted.stderr[:150])
+
+        orphan_video = VIDEO_DIR / f"{PREFIX}_orphan.mp4"
+        orphan_video.write_bytes(b"orphan")
+        status, _, _ = anon.request("GET", f"/api/videos/file/{orphan_video.name}")
+        check(status == 404, "F6 无库记录的孤儿视频匿名读取 → 404", f"status={status}")
+        orphan_video.unlink(missing_ok=True)
 
         status, h, payload = anon.request("GET", f"/api/videos/file/{name}",
                                           headers={"Range": "bytes=100-199"})
@@ -665,6 +694,7 @@ def main():
                 print(f"warn  cleanup submission {submission_id}: {exc}")
         if test_video and test_video.exists():
             try:
+                mysql_run(f"DELETE FROM video_submissions WHERE filename='{test_video.name}'")
                 test_video.unlink()
             except OSError as exc:
                 print(f"warn  删除测试视频失败: {exc}")

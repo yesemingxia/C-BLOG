@@ -850,6 +850,14 @@ static http::response<http::string_body> handle_follow_user(
     }
 
     bool newly_followed = user_dao::follow(user_id, target_id);
+    // @crnl+F15：follow 的 false 兼有「已关注」与「写库失败」两义，
+    // 用 is_following 核实实际状态，未达到目标状态必须 500，不能假成功
+    if (!user_dao::is_following(user_id, target_id)) {
+        http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+        res.body() = response::error(500, "Failed to follow user");
+        res.prepare_payload();
+        return res;
+    }
     if (newly_followed) {
         notification_dao::insert(target_id, "follow", username, "关注了你", "", 0, user_id);
     }
@@ -891,7 +899,13 @@ static http::response<http::string_body> handle_unfollow_user(
         return res;
     }
 
-    user_dao::unfollow(user_id, target_id);
+    // @crnl+F15：DAO 失败必须 500，原先忽略返回值是假成功
+    if (!user_dao::unfollow(user_id, target_id)) {
+        http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+        res.body() = response::error(500, "Failed to unfollow user");
+        res.prepare_payload();
+        return res;
+    }
 
     json::object data;
     data["is_following"] = false;

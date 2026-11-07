@@ -3,6 +3,7 @@
 #include "utils/config.h"
 #include "utils/logger.h"
 #include "db/redis_pool.h"
+#include "dao/user_dao.h"
 
 #include <jwt-cpp/traits/boost-json/traits.h>
 
@@ -91,6 +92,14 @@ bool validate_token(const std::string& token, int64_t& user_id, std::string& use
         user_id = std::stoll(decoded.get_subject());
         username = decoded.get_payload_claim("username").as_string();
         role = decoded.get_payload_claim("role").as_string();
+
+        // @crnl+F2：回查 DB 确认用户仍存在且角色未变。降角色/删用户后旧 token 立即失效，
+        // 不依赖 Redis 黑名单（降级模式下黑名单整体失效，而撤权必须始终生效）。
+        // 查询失败按拒绝处理（fail-closed）；username 以 DB 为准，覆盖改名场景。
+        std::string db_username, db_role;
+        if (!user_dao::find_auth_state_by_id(user_id, db_username, db_role)) return false;
+        if (db_role != role) return false;
+        username = db_username;
         return true;
     } catch (const std::exception& e) {
         spdlog::warn("Token validation failed: {}", e.what());

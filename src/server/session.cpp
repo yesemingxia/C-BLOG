@@ -6,7 +6,10 @@
 #include "middleware/cors_middleware.h"
 #include "middleware/rate_limiter.h"
 
+#include <array>
+#include <chrono>
 #include <string>
+#include <thread>
 
 Session::Session(tcp::socket&& socket, Router& router)
     : stream_(std::move(socket)), router_(router) {
@@ -64,19 +67,38 @@ void Session::read_request() {
                 http::response<http::string_body> res{http::status::payload_too_large,
                                                       self->req_.version()};
                 res.set(http::field::content_type, "application/json");
+                res.set(http::field::connection, "close");
                 res.body() = R"({"code":413,"message":"Request body too large","data":null})";
                 res.prepare_payload();
                 self->res_ = std::move(res);
                 self->keep_alive_ = false;
-                self->write_response();
+                self->write_payload_too_large();
                 return;
             }
+
+            // @crnl+F3：chunked 请求没有 Content-Length，上面的 declared 检查拦不住，
+            // 会一路塞到解析层 64MB 兜底。把解析层限额收紧到路径 cap：
+            // 超限时 beast 报 http::error::body_limit，由 body 读取回调回 413。
+            self->parser_->body_limit(cap);
 
             http::async_read(self->stream_, self->buffer_, *self->parser_,
                 [self](beast::error_code ec2, std::size_t bytes2) {
                     if (!ec2) {
                         self->req_ = self->parser_->get();
                         self->handle_request();
+                    } else if (ec2 == http::error::body_limit) {
+                        // @crnl+F3：chunked body 超过路径限额，明确回 413 而不是静默断连
+                        spdlog::warn("Chunked body exceeded path cap: {}",
+                                     std::string(self->req_.target()));
+                        http::response<http::string_body> res{http::status::payload_too_large,
+                                                              self->req_.version()};
+                        res.set(http::field::content_type, "application/json");
+                        res.set(http::field::connection, "close");
+                        res.body() = R"({"code":413,"message":"Request body too large","data":null})";
+                        res.prepare_payload();
+                        self->res_ = std::move(res);
+                        self->keep_alive_ = false;
+                        self->write_payload_too_large();
                     } else if (ec2 == http::error::end_of_stream) {
                         // @cuiruoni+客户端正常关闭连接
                         self->close();
@@ -241,4 +263,43 @@ void Session::write_file_response() {
 void Session::close() {
     beast::error_code ec;
     stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
+}
+
+// @crnl+F3：413 响应写完后先排空对端已发出、内核里还躺着的入站数据，再关连接。
+// 直接 close 一个带未读数据的 socket，Windows 会回 RST，把刚写的 413 一起冲掉
+void Session::write_payload_too_large() {
+    auto self = shared_from_this();
+    http::async_write(stream_, res_,
+        [self](beast::error_code ec, std::size_t) {
+            if (ec) {
+                self->close();
+                return;
+            }
+            self->drain_and_close();
+        });
+}
+
+void Session::drain_and_close() {
+    auto self = shared_from_this();
+    std::array<char, 4096> buf{};
+    auto& sock = stream_.socket();
+    beast::error_code ec;
+    sock.non_blocking(true, ec);
+
+    // 有界 drain：最多 8MB / 300ms，避免恶意客户端持续灌数据占住 IO 线程。
+    // 正常客户端（一次性 sendall）在几十毫秒内就能读完，随后收到 FIN
+    size_t total = 0;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+    while (std::chrono::steady_clock::now() < deadline && total < 8 * 1024 * 1024) {
+        size_t n = sock.read_some(net::buffer(buf), ec);
+        if (n > 0) total += n;
+        if (ec == net::error::would_block || ec == net::error::try_again) {
+            ec.clear();
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            continue;
+        }
+        if (ec) break; // eof / reset / 其他错误
+    }
+    spdlog::debug("413 drain: {} bytes discarded before close", total);
+    close();
 }

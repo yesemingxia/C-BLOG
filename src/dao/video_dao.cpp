@@ -171,6 +171,31 @@ bool get(int64_t id, VideoRow& out) {
     }
 }
 
+// @crnl+F6：与 get() 同列，WHERE 换成 filename（文件名上传时随机生成，全局唯一）
+bool get_by_filename(const std::string& filename, VideoRow& out) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return false;
+
+    try {
+        auto result = sess->sql(
+            "SELECT id, uploader_id, filename, original_name, status, is_active FROM video_submissions WHERE filename = ?")
+            .bind(filename).execute();
+        auto row = result.fetchOne();
+        if (row.isNull()) return false;
+
+        out.id = static_cast<int64_t>(row[0]);
+        out.uploader_id = static_cast<int64_t>(row[1]);
+        out.filename = mysqlx_helper::to_string(row[2]);
+        out.original_name = row[3].isNull() ? "" : mysqlx_helper::to_string(row[3]);
+        out.status = mysqlx_helper::to_string(row[4]);
+        out.is_active = static_cast<int64_t>(row[5]) != 0;
+        return true;
+    } catch (const std::exception& e) {
+        spdlog::error("video_dao::get_by_filename error: {}", e.what());
+        return false;
+    }
+}
+
 bool set_status(int64_t id, const std::string& status) {
     auto sess = MysqlPool::instance().acquire();
     if (!sess) return false;
@@ -190,10 +215,14 @@ bool set_active(int64_t id) {
     if (!sess) return false;
 
     try {
+        // @crnl+F15：两条 UPDATE 包事务。原先第二条失败会留下「全站无背景」的中间态
+        sess->startTransaction();
         sess->sql("UPDATE video_submissions SET is_active = 0 WHERE is_active = 1").execute();
         sess->sql("UPDATE video_submissions SET is_active = 1 WHERE id = ?").bind(id).execute();
+        sess->commit();
         return true;
     } catch (const std::exception& e) {
+        try { sess->rollback(); } catch (...) {}
         spdlog::error("video_dao::set_active error: {}", e.what());
         return false;
     }

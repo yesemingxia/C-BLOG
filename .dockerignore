@@ -1,0 +1,24 @@
+# @crnl+F10：构建上下文排除——否则 COPY source/frontend-source/ 会把 Windows 的
+# node_modules/dist 带进 alpine 镜像，上下文还会包含 build/uploads 等数百 MB 产物
+.git/
+.vs/
+build/
+build-clangd/
+out/
+x64/
+backups/
+.workbuddy/
+.reasonix/
+dist-package/
+dist-check-fx/
+uploads/
+config/
+fastapi-backend/
+gathered-scenes-zine-skill/
+**/node_modules/
+**/dist/
+**/dist-check-fx/
+**/dist-check-rework/
+**/__pycache__/
+**/.venv/
+*.log

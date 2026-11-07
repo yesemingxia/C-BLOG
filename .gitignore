@@ -73,6 +73,8 @@ config/config.*.local.json
 
 # Markdown 文档（如果不需要提交）
 *.md
+# fastapi-backend 的 README 是契约文档，必须随目录入库
+!fastapi-backend/README.md
 
 # IDE / 编辑器
 .vscode/
@@ -169,3 +171,10 @@ gathered-scenes-zine-skill/
 
 # 前端构建产物校验目录（临时，不入库）
 dist-check-fx/
+
+# 演示打包产物（61MB，不入库）
+dist-package/
+
+# Python 虚拟环境与缓存（fastapi-backend 等）
+.venv/
+__pycache__/

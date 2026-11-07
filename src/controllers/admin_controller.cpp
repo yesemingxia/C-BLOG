@@ -507,7 +507,13 @@ static http::response<http::string_body> handle_admin_delete_comment(
             return res;
         }
 
-        comment_dao::delete_by_id(comment_id);
+        // @crnl+F15：DAO 失败必须 500，原先忽略返回值是「假成功」
+        if (!comment_dao::delete_by_id(comment_id)) {
+            http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+            res.body() = response::error(500, "Failed to delete comment");
+            res.prepare_payload();
+            return res;
+        }
             http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(std::string("Comment deleted"));
         res.prepare_payload();
@@ -596,7 +602,13 @@ static http::response<http::string_body> handle_admin_delete_contact(
             return res;
         }
 
-        contact_dao::delete_by_id(contact_id);
+        // @crnl+F15：DAO 失败必须 500，原先忽略返回值是「假成功」
+        if (!contact_dao::delete_by_id(contact_id)) {
+            http::response<http::string_body> res{http::status::internal_server_error, req.version()};
+            res.body() = response::error(500, "Failed to delete contact message");
+            res.prepare_payload();
+            return res;
+        }
         http::response<http::string_body> res{http::status::ok, req.version()};
         res.body() = response::success(std::string("Contact message deleted"));
         res.prepare_payload();

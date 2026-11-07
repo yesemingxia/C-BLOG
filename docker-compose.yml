@@ -71,7 +71,12 @@ services:
       - ./uploads:/app/uploads
 
   frontend:
-    image: nginx:alpine
+    # @crnl+F10：改为镜像内构建前端（Dockerfile frontend 阶段）。
+    # 原先挂宿主机 dist/（被 gitignore），全新克隆起 nginx 是空站点，需手工 npm build
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend
     restart: unless-stopped
     ports:
       - "80:80"
@@ -79,9 +84,6 @@ services:
       # - "443:443"
     depends_on:
       - backend
-    volumes:
-      - ./source/frontend-source/dist:/usr/share/nginx/html:ro
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
 volumes:
   mysql_data:

@@ -71,6 +71,9 @@ json::array list_users(int page, int page_size, int& total,
 // @cuiruoni+检查用户ID是否存在
 bool exists_by_id(int64_t user_id);
 
+// @crnl+F2：鉴权回查——按 id 取当前 username/role；用户不存在或查询失败返回 false
+bool find_auth_state_by_id(int64_t user_id, std::string& username, std::string& role);
+
 // @cuiruoni+更新用户角色
 bool update_role(int64_t user_id, const std::string& new_role);
 

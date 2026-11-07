@@ -33,6 +33,9 @@ checks, failures = [], []
 
 def check(name, ok, detail=""):
     checks.append((name, bool(ok)))
+    # @crnl+F7：原实现从不向 failures 追加，退出码恒 0、恒打印 N/N passed（假绿）
+    if not ok:
+        failures.append(name)
     print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
 
 

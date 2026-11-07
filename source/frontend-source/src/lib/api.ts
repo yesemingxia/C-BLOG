@@ -142,7 +142,16 @@ async function request<T>(path: string, options?: RequestInit, timeoutMs: number
         localStorage.removeItem("blog_user");
         window.dispatchEvent(new Event("auth-change"));
       }
-      throw new Error(`API Error: ${res.status} ${res.statusText}`);
+      // @crnl+F11：后端错误体里有具体文案（密码错误/账号锁定/用户名已存在等）。
+      // 原实现丢弃 body 只留状态码，页面永远只能弹通用的「请求失败」
+      let message = `${res.status} ${res.statusText}`;
+      try {
+        const errBody = (await res.json()) as { message?: string };
+        if (errBody && typeof errBody.message === "string" && errBody.message) {
+          message = errBody.message;
+        }
+      } catch { /* body 不是 JSON 时保留状态码文案 */ }
+      throw new Error(message);
     }
     const payload = (await res.json()) as Record<string, unknown>;
     // 后端用 {code: 0} 表示成功，没有 success 字段；这里兼容转换
@@ -616,6 +625,13 @@ export const videosApi = {
     const CHUNK = 1024 * 1024;
     const MAX_RETRY = 5;
 
+    // @crnl+F12：分片 PUT/查询/放弃原先是裸 fetch，网络挂起会永久卡住；统一挂超时
+    const fetchT = (url: string, init?: RequestInit, ms = 30_000): Promise<Response> => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), ms);
+      return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+    };
+
     // 1. init
     const initRes = await request<ApiResponse<{ upload_id: string; received: number }>>(
       "/videos/upload/init",
@@ -638,8 +654,16 @@ export const videosApi = {
       // eslint-disable-next-line no-constant-condition
       while (true) {
         attempt += 1;
+        // @crnl+F12：409 重对齐分支原先 break 不消耗重试上限，服务端进度不变时可无限循环；
+        // 这里统一在循环顶部判耗尽
+        if (attempt > MAX_RETRY) {
+          try {
+            await fetchT(`${API_BASE}/videos/upload/${uploadId}`, { method: "DELETE", credentials: "include" });
+          } catch { /* 忽略 */ }
+          throw new Error("分片重试次数耗尽，上传失败");
+        }
         try {
-          const res = await fetch(`${API_BASE}/videos/upload/${uploadId}`, {
+          const res = await fetchT(`${API_BASE}/videos/upload/${uploadId}`, {
             method: "PUT",
             headers: {
               "Content-Type": "application/octet-stream",
@@ -650,9 +674,14 @@ export const videosApi = {
           });
           if (res.status === 409) {
             // 服务端收到的比本地 offset 多（重复片/竞态）：重新对齐
-            const q = await fetch(`${API_BASE}/videos/upload/${uploadId}`, { credentials: "include" });
+            const q = await fetchT(`${API_BASE}/videos/upload/${uploadId}`, { credentials: "include" });
             const qj = (await q.json()) as ApiResponse<{ received: number }>;
-            offset = Math.min(qj.data?.received ?? offset, file.size);
+            const aligned = Math.min(qj.data?.received ?? offset, file.size);
+            if (aligned <= offset) {
+              // @crnl+F12：对齐后进度没前进，再发同一片只会再 409 —— 报错退出而不是死循环
+              throw new Error("上传进度未推进，请重新上传");
+            }
+            offset = aligned;
             break; // 重新对齐后跳出内层，继续 while 外层从新 offset 发
           }
           const pj = (await res.json()) as ApiResponse<{ received: number }>;
@@ -662,17 +691,18 @@ export const videosApi = {
           offset = pj.data.received;
           break;
         } catch (err) {
+          if (err instanceof Error && err.message.includes("请重新上传")) throw err;
           if (attempt >= MAX_RETRY) {
             // 彻底失败：放弃会话，把错误抛给调用方
             try {
-              await fetch(`${API_BASE}/videos/upload/${uploadId}`, { method: "DELETE", credentials: "include" });
+              await fetchT(`${API_BASE}/videos/upload/${uploadId}`, { method: "DELETE", credentials: "include" });
             } catch { /* 忽略 */ }
             throw err instanceof Error ? err : new Error("上传失败");
           }
           // 网络类失败：等待后查询断点，从服务端已收字节继续
           await new Promise((r) => setTimeout(r, 800 * attempt));
           try {
-            const q = await fetch(`${API_BASE}/videos/upload/${uploadId}`, { credentials: "include" });
+            const q = await fetchT(`${API_BASE}/videos/upload/${uploadId}`, { credentials: "include" });
             if (q.status === 404) throw new Error("上传会话已过期，请重新上传");
             const qj = (await q.json()) as ApiResponse<{ received: number }>;
             offset = Math.min(qj.data?.received ?? offset, file.size);
@@ -743,9 +773,10 @@ export async function checkBackendHealth(): Promise<boolean> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
-    await fetch("/api/posts?page=1&page_size=1", { signal: controller.signal });
+    // @crnl+F14：原实现只 catch 网络错误，后端回 500 也判在线；必须看状态码
+    const res = await fetch("/api/posts?page=1&page_size=1", { signal: controller.signal });
     clearTimeout(timeout);
-    return true;
+    return res.ok;
   } catch {
     return false;
   }

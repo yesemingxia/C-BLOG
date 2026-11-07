@@ -68,8 +68,11 @@ SearchResult search(const std::string& keyword, int64_t viewer_id, bool is_admin
     if (ctx) {
         redisReply* reply = (redisReply*)redisCommand(ctx.get(), "GET %s", cache_key.c_str());
         if (reply && reply->type == REDIS_REPLY_STRING) {
-            std::string cached(reply->str);
+            std::string cached(reply->str, reply->len);
             freeReplyObject(reply);
+            // @crnl+F1：释放后置空。否则下面 JSON 解析抛异常被 catch 吞掉后，
+            // 分支外的 if (reply) 会对同一指针二次释放（缓存脏数据即触发）
+            reply = nullptr;
             try {
                 auto obj = json::parse(cached).as_object();
                 out.results = obj.at("results").as_array();

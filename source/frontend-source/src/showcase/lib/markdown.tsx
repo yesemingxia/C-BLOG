@@ -27,8 +27,13 @@ export function parseInline(text: string, keyPrefix: string): ReactNode[] {
     if (/^`[^`\n]+`$/.test(part)) return <code key={key}>{part.slice(1, -1)}</code>;
     const link = /^\[([^\]\n]+)\]\(([^)\n]+)\)$/.exec(part);
     if (link) {
+      // @crnl+F13：只放行 http/https/mailto 与相对路径；javascript:/data: 等按纯文本渲染
+      const url = link[2].trim();
+      const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(url);
+      const safe = !hasScheme || /^(https?|mailto):/i.test(url);
+      if (!safe) return part;
       return (
-        <a key={key} href={link[2]} target="_blank" rel="noreferrer noopener">
+        <a key={key} href={url} target="_blank" rel="noreferrer noopener">
           {link[1]}
         </a>
       );

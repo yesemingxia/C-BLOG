@@ -77,8 +77,9 @@ const Login = () => {
           toast.error(res.message || "注册失败");
         }
       }
-    } catch {
-      toast.error("请求失败，请稍后重试");
+    } catch (err) {
+      // @crnl+F11：透传后端具体文案（密码错误/账号锁定等），不再一律通用提示
+      toast.error(err instanceof Error && err.message ? err.message : "请求失败，请稍后重试");
     } finally {
       setLoading(false);
     }

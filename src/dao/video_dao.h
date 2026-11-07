@@ -38,6 +38,9 @@ std::vector<std::string> list_filenames_by_uploader(int64_t uploader_id);
 // @cuiruoni+按 id 取单行；不存在返回 false
 bool get(int64_t id, VideoRow& out);
 
+// @crnl+F6：按文件名取单行（公开读取闸控用）；不存在返回 false
+bool get_by_filename(const std::string& filename, VideoRow& out);
+
 // @cuiruoni+审核：更新状态并记录时间
 bool set_status(int64_t id, const std::string& status);
 

@@ -27,6 +27,9 @@ private:
     void handle_request();
     void write_response();
     void write_file_response();
+    // @crnl+F3：413 专用——写完响应后先排空入站数据再关连接，避免 RST 吞掉响应
+    void write_payload_too_large();
+    void drain_and_close();
     void close();
 
     beast::tcp_stream stream_;                   // @cuiruoni+TCP流，封装socket支持超时等特性

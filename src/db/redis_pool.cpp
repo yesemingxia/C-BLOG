@@ -69,17 +69,21 @@ redisContext* RedisPool::create_connection() {
 }
 
 redisContext* RedisPool::get() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!pool_.empty()) {
-        auto ctx = pool_.front();
-        pool_.pop();
-        return ctx;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!pool_.empty()) {
+            auto ctx = pool_.front();
+            pool_.pop();
+            return ctx;
+        }
+        // @cuiruoni+P0修复：熔断期间快速失败，不阻塞连接超时；到重试时间后再尝试一次
+        if (degraded_.load() && now_ms() < retry_until_ms_.load()) {
+            spdlog::debug("Redis pool degraded, skipping connection attempt");
+            return nullptr;
+        }
     }
-    // @cuiruoni+P0修复：熔断期间快速失败，不阻塞连接超时；到重试时间后再尝试一次
-    if (degraded_.load() && now_ms() < retry_until_ms_.load()) {
-        spdlog::debug("Redis pool degraded, skipping connection attempt");
-        return nullptr;
-    }
+    // @crnl+F4：建连（1s 超时）移出 mutex——原先持锁建连，Redis 不在时
+    // 每个请求串行阻塞在锁上。重试窗口过后多个 IO 线程可能同时试建，数量有界，可接受
     auto ctx = create_connection();
     if (!ctx) {
         degraded_.store(true);
@@ -93,6 +97,14 @@ redisContext* RedisPool::get() {
 
 void RedisPool::release(redisContext* ctx) {
     if (!ctx) return;
+    // @crnl+F4：命令失败会在 ctx->err 留痕。死连接回池后 acquire 永远返回死句柄，
+    // 池非空 → get() 不走建连 → 熔断永不触发，只能靠人工健康检查修复。这里直接丢弃
+    if (ctx->err) {
+        spdlog::warn("Redis discarding dead connection on release (err={}): {}",
+                     ctx->err, ctx->errstr);
+        redisFree(ctx);
+        return;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     if (static_cast<int>(pool_.size()) < pool_size_) {
         // @cuiruoni+池未满，回收连接供后续复用

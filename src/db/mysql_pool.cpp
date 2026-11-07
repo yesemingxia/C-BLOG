@@ -46,14 +46,17 @@ std::shared_ptr<mysqlx::Session> MysqlPool::create_session() {
 }
 
 std::shared_ptr<mysqlx::Session> MysqlPool::get() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!pool_.empty()) {
-        // @cuiruoni+优先复用池中空闲连接
-        auto sess = pool_.front();
-        pool_.pop();
-        return sess;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!pool_.empty()) {
+            // @cuiruoni+优先复用池中空闲连接
+            auto sess = pool_.front();
+            pool_.pop();
+            return sess;
+        }
     }
-    // @cuiruoni+池空时新建连接，不阻塞等待，允许短暂超过pool_size_
+    // @cuiruoni+F5：建连移出 mutex（原先锁内做网络 I/O，建连慢时阻塞全部 IO 线程）；
+    // 池空时新建连接，不阻塞等待，允许短暂超过pool_size_
     try {
         return create_session();
     } catch (const std::exception& e) {
@@ -102,6 +105,16 @@ MysqlPool::PooledSession MysqlPool::acquire() {
 
 void MysqlPool::release(std::shared_ptr<mysqlx::Session> session) {
     if (!session) return;
+    // @crnl+F5：锁外验活。MySQL 重启后死会话被 DAO catch 掉异常又原样回池，
+    // 之后每个请求都拿到死连接、持续报错直到人工健康检查。SELECT 1 一次轻量往返，
+    // 死连接直接丢弃，get() 池空时会自建新连接
+    try {
+        session->sql("SELECT 1").execute();
+    } catch (const std::exception& e) {
+        spdlog::warn("MySQL discarding dead connection on release: {}", e.what());
+        try { session->close(); } catch (...) {}
+        return;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     if (static_cast<int>(pool_.size()) < pool_size_) {
         // @cuiruoni+池未满，回收连接供后续复用

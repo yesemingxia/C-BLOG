@@ -481,6 +481,24 @@ FileRouteResult handle_get_file(
         return result;
     }
 
+    // @crnl+F6：公开读取必须过审。原实现只校验文件名，pending/rejected 的文件
+    // 知道文件名即可下载，审核形同虚设。未过审仅投稿人本人或管理员可取（预览），
+    // 匿名一律 404（不泄露存在性）；库里无记录的孤儿文件同样 404
+    video_dao::VideoRow row;
+    if (!video_dao::get_by_filename(name, row)) {
+        result.text = make_error(req, http::status::not_found, "文件不存在");
+        return result;
+    }
+    if (row.status != "approved") {
+        int64_t user_id = 0;
+        std::string username, role;
+        const bool authed = auth_service::extract_user_from_token(req, user_id, username, role);
+        if (!authed || (user_id != row.uploader_id && role != "admin")) {
+            result.text = make_error(req, http::status::not_found, "文件不存在");
+            return result;
+        }
+    }
+
     const std::string path = storage::videos() + "/" + name;
     std::error_code size_ec;
     const std::uint64_t file_size = std::filesystem::file_size(path, size_ec);

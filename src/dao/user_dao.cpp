@@ -393,6 +393,25 @@ bool exists_by_id(int64_t user_id) {
     }
 }
 
+// @crnl+F2：单条主键查询，供 validate_token 每次认证回查用户状态
+bool find_auth_state_by_id(int64_t user_id, std::string& username, std::string& role) {
+    auto sess = MysqlPool::instance().acquire();
+    if (!sess) return false;
+
+    try {
+        auto result = sess->sql("SELECT username, role FROM users WHERE id = ?")
+            .bind(user_id).execute();
+        auto row = result.fetchOne();
+        if (row.isNull()) return false;
+        username = mysqlx_helper::to_string(row[0]);
+        role = mysqlx_helper::to_string(row[1]);
+        return true;
+    } catch (const std::exception& e) {
+        spdlog::error("user_dao::find_auth_state_by_id error: {}", e.what());
+        return false;
+    }
+}
+
 bool update_role(int64_t user_id, const std::string& new_role) {
     auto sess = MysqlPool::instance().acquire();
     if (!sess) return false;
